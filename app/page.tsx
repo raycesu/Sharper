@@ -15,21 +15,17 @@ export default function Home() {
           }}
         />
 
-        <div className="relative mb-7">
+        <div className="relative mb-8">
           <Image
             src="/brand/sharper-logo.png"
             alt="Sharper"
-            width={280}
-            height={112}
+            width={400}
+            height={160}
             priority
-            className="object-contain w-[min(280px,85vw)] h-auto"
+            className="object-contain w-[min(400px,92vw)] h-auto"
             style={{ width: 'auto', height: 'auto' }}
           />
         </div>
-
-        <p className="relative text-[11px] uppercase tracking-[0.15em] text-[#6B8EFF] font-medium mb-5 select-none">
-          Become Sharper
-        </p>
 
         <h1 className="relative text-[32px] leading-tight font-medium text-[#F0F0F8] max-w-[520px] tracking-tight">
           <span className="block">Backtest crypto and equity trading strategies</span>
@@ -47,7 +43,7 @@ export default function Home() {
       </div>
 
       <p className="mt-14 text-[11px] text-[#555568] max-w-sm">
-        Powered by Coinbase &amp; Yahoo Finance · Past performance is not indicative of future results
+        Powered by Coinbase &amp; Twelve Data · Past performance is not indicative of future results
       </p>
     </div>
   )

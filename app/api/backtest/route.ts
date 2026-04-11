@@ -123,31 +123,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Warn when requesting intraday stock data beyond Yahoo Finance's ~60-day window
     const intradayIntervals = ['5m', '15m', '1h']
-    const useYahoo = assetClass === 'stock' && !process.env.POLYGON_API_KEY
-    if (useYahoo && intradayIntervals.includes(interval)) {
-      const dayRange = (endTime - startTime) / (1000 * 60 * 60 * 24)
-      if (dayRange > 58) {
-        return NextResponse.json(
-          {
-            error:
-              `Yahoo Finance intraday data is limited to approximately the last 60 days. `
-              + `Your range spans ${Math.round(dayRange)} days. `
-              + `Switch to "1 day" interval for longer historical backtests, `
-              + `or configure POLYGON_API_KEY for extended intraday history.`,
-          },
-          { status: 400 },
-        )
-      }
-    }
 
     const candles = await fetchCandles(assetClass, productId, interval, startTime, endTime)
 
     if (candles.length < 50) {
       const isIntradayStock = assetClass === 'stock' && intradayIntervals.includes(interval)
       const hint = isIntradayStock
-        ? ' Yahoo Finance intraday history is limited to ~60 days — try a more recent date range or use "1 day" interval.'
+        ? ' Intraday history depends on your Twelve Data plan — try a shorter range or use the "1 day" interval.'
         : ''
       return NextResponse.json(
         { error: `Not enough candle data for this range (got ${candles.length}, need at least 50).${hint}` },

@@ -1,30 +1,22 @@
 import type { Candle, Product } from './types'
 import { fetchProducts as fetchCryptoProducts, fetchCandles as fetchCryptoCandles } from './coinbase'
-import { fetchStockProducts, fetchStockCandles, searchYahooStocks } from './yahoo'
-import { searchPolygonStocks, fetchPolygonCandles } from './polygon'
-
-/** True when a Polygon API key has been configured server-side. */
-const usePolygon = () => Boolean(process.env.POLYGON_API_KEY)
+import {
+  fetchStockProducts,
+  fetchTwelveDataCandles,
+  searchTwelveDataStocks,
+} from './twelvedata'
 
 export async function fetchProducts(assetClass: 'crypto' | 'stock'): Promise<Product[]> {
   if (assetClass === 'stock') return fetchStockProducts()
   return fetchCryptoProducts()
 }
 
-/**
- * Live symbol search for stocks.
- * Uses Polygon.io when POLYGON_API_KEY is set, Yahoo Finance otherwise.
- */
+/** Live symbol search for stocks (Twelve Data). */
 export async function searchStockProducts(query: string): Promise<Product[]> {
-  if (usePolygon()) return searchPolygonStocks(query)
-  return searchYahooStocks(query)
+  return searchTwelveDataStocks(query)
 }
 
-/**
- * Fetch OHLCV candles for any supported asset class and interval.
- * Stock candles go through Polygon.io if POLYGON_API_KEY is set,
- * otherwise fall back to Yahoo Finance.
- */
+/** Fetch OHLCV candles for any supported asset class and interval. */
 export async function fetchCandles(
   assetClass: 'crypto' | 'stock',
   symbol:     string,
@@ -33,8 +25,7 @@ export async function fetchCandles(
   endMs:      number,
 ): Promise<Candle[]> {
   if (assetClass === 'stock') {
-    if (usePolygon()) return fetchPolygonCandles(symbol, interval, startMs, endMs)
-    return fetchStockCandles(symbol, interval, startMs, endMs)
+    return fetchTwelveDataCandles(symbol, interval, startMs, endMs)
   }
   return fetchCryptoCandles(symbol, interval, startMs, endMs)
 }

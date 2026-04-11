@@ -15,8 +15,9 @@ export default function SiteHeader() {
     <header className="sticky top-0 z-40 flex h-[52px] shrink-0 items-stretch border-b border-border bg-[#0D0D0F] px-8">
       <div className="flex w-full max-w-none items-stretch gap-10">
         <Link href="/" className="flex items-center">
-          <span className="select-none font-bold tracking-tight text-brand-gradient text-[15px]">
-            Sharper
+          <span className="select-none font-bold tracking-tight text-[15px]">
+            <span className="text-brand-gradient">Sharpe</span>
+            <span className="text-heading">r</span>
           </span>
         </Link>
         <nav className="flex items-stretch gap-1">

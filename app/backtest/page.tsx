@@ -49,7 +49,7 @@ const FIELD_LABEL =
 
 /** Results / charts (after backtest) — hex literals inlined for Tailwind */
 const RESULT_CARD =
-  'relative overflow-hidden rounded-[10px] border border-[#1E1E2A] bg-[#111116] p-4'
+  'relative overflow-visible rounded-[10px] border border-[#1E1E2A] bg-[#111116] p-4'
 const CHART_SHELL = 'rounded-xl border border-[#1E1E2A] bg-[#111116]'
 
 type StrategyConfigProps = {
@@ -134,17 +134,18 @@ function MetricHint({ text }: { text: string }) {
         ⓘ
       </span>
       <span
+        role="tooltip"
         className={[
           'pointer-events-none absolute z-50',
-          'bottom-full left-1/2 -translate-x-1/2 mb-2',
+          'top-full left-1/2 -translate-x-1/2 mt-2',
           'w-56 px-3 py-2.5 rounded-xl text-[11px] leading-relaxed',
           'normal-case tracking-normal font-normal',
-          'bg-surface-raised border border-border text-foreground/80',
+          'bg-surface-raised border border-border text-foreground shadow-lg',
           'opacity-0 group-hover/hint:opacity-100 transition-opacity duration-150',
         ].join(' ')}
       >
+        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-[-1px] border-[5px] border-transparent border-b-surface-raised" />
         {text}
-        <span className="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-[5px] border-transparent border-t-surface-raised" />
       </span>
     </span>
   )
@@ -500,11 +501,6 @@ export default function BacktestPage() {
             </button>
           ))}
         </div>
-        {assetClass === 'stock' && (
-          <span className="text-[12px] text-[#555568]">
-            Daily: 10+ years · Intraday (5m–1h): ~60 days · Yahoo Finance · type any ticker
-          </span>
-        )}
       </div>
 
       {/* Main form: 2-col Coin/Interval & Start/End; full-width capital */}
