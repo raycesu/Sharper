@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/prep-dev.mjs && next dev --turbopack",
+    "dev:webpack": "next dev --webpack",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "preview": "next build && next start"
   },
   "dependencies": {
     "lightweight-charts": "^5.1.0",

@@ -1,17 +1,7 @@
-export type Candle = {
-  time: number   // Unix timestamp ms
-  open: number
-  high: number
-  low: number
-  close: number
-  volume: number
-}
+import type { Candle, Product } from './types'
 
-export type Product = {
-  id: string       // e.g. "BTC-USD"
-  baseName: string // e.g. "Bitcoin"
-  base: string     // e.g. "BTC"
-}
+// Re-export for backward compatibility
+export type { Candle, Product }
 
 // Coinbase Advanced Trade public candles endpoint supports these granularities
 const GRANULARITY_MAP: Record<string, string> = {
@@ -45,7 +35,7 @@ export async function fetchProducts(): Promise<Product[]> {
 
   const res = await fetch(url.toString(), {
     headers: { 'Content-Type': 'application/json' },
-    next: { revalidate: 3600 }, // cache product list for 1 hour
+    next: { revalidate: 3600 },
   })
   if (!res.ok) {
     throw new Error(`Coinbase products API error ${res.status}`)
@@ -67,6 +57,7 @@ export async function fetchProducts(): Promise<Product[]> {
       id: p.product_id,
       baseName: p.base_name ?? p.base_currency_id,
       base: p.base_currency_id,
+      assetClass: 'crypto' as const,
     }))
     .sort((a, b) => a.baseName.localeCompare(b.baseName))
 }

@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
+import { Inter, Geist_Mono } from "next/font/google";
+import SiteHeader from "@/components/SiteHeader";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
 });
 
@@ -26,22 +26,10 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-[#0d0d14]">
-        <header className="border-b border-white/[0.07] px-6 py-3 flex items-center gap-8">
-          <Link href="/" className="text-[#a89cf7] font-semibold tracking-tight text-base">
-            Sharper
-          </Link>
-          <nav className="flex items-center gap-6 text-sm">
-            <Link href="/" className="text-white/40 hover:text-white transition-colors">
-              Home
-            </Link>
-            <Link href="/backtest" className="text-white/40 hover:text-white transition-colors">
-              Backtester
-            </Link>
-          </nav>
-        </header>
+      <body className="min-h-full flex flex-col bg-background">
+        <SiteHeader />
         <main className="flex-1">{children}</main>
       </body>
     </html>

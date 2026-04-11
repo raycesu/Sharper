@@ -1,5 +1,4 @@
-import type { Candle } from './coinbase'
-import type { StrategyFn } from './engine'
+import type { Candle, StrategyFn } from './types'
 import { rsi, ema, macd } from './indicators'
 
 // --- RSI Oversold / Overbought ---

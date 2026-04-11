@@ -65,7 +65,7 @@ export default function CoinSelector({ value, onChange, className }: Props) {
         className={className}
       />
       {open && filtered.length > 0 && (
-        <ul className="absolute z-50 top-full mt-1 w-full max-h-52 overflow-y-auto bg-[#1a1630] border border-white/10 rounded-lg shadow-2xl">
+        <ul className="absolute z-50 top-full mt-1 w-full max-h-52 overflow-y-auto bg-surface-raised border border-border rounded-xl">
           {filtered.map(p => (
             <li
               key={p.id}
@@ -74,13 +74,13 @@ export default function CoinSelector({ value, onChange, className }: Props) {
                 setQuery(p.id)
                 setOpen(false)
               }}
-              className={`px-3 py-2 text-sm cursor-pointer flex items-baseline gap-1.5 hover:bg-white/5 ${
-                p.id === value ? 'text-[#a89cf7]' : 'text-white/80'
+              className={`px-3 py-2 text-sm cursor-pointer flex items-baseline gap-1.5 hover:bg-heading/[0.06] ${
+                p.id === value ? 'text-brand' : 'text-foreground/85'
               }`}
             >
               <span className="font-medium">{p.base}</span>
-              <span className="text-white/40 text-xs">{p.baseName}</span>
-              <span className="text-white/20 text-xs ml-auto">{p.id}</span>
+              <span className="text-foreground/50 text-xs">{p.baseName}</span>
+              <span className="text-foreground/25 text-xs ml-auto">{p.id}</span>
             </li>
           ))}
         </ul>

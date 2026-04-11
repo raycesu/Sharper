@@ -1,4 +1,4 @@
-import type { Candle } from './coinbase'
+import type { Candle } from './types'
 
 export function sma(candles: Candle[], period: number): (number | null)[] {
   return candles.map((_, i) => {

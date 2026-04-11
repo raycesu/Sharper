@@ -1,25 +1,98 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0d0d14;
-  --foreground: #ededed;
+  --background:       #0d0d0f;
+  --foreground:       #a0a0b0;
+  --heading:          #f0f0f8;
+  --surface:          #111116;
+  --surface-raised:   #16161e;
+  --border:           #1e1e2a;
+  --border-strong:    #2a2a3a;
+  --brand-start:      #6b8eff;
+  --brand-end:        #7c5cfc;
+  --brand:            #6b8eff;
+  --brand-b:          #7c5cfc;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background:     var(--background);
+  --color-foreground:     var(--foreground);
+  --color-heading:        var(--heading);
+  --color-surface:        var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border:         var(--border);
+  --color-border-strong:  var(--border-strong);
+  --color-brand:          var(--brand);
+  --color-brand-start:    var(--brand-start);
+  --color-brand-end:      var(--brand-end);
+  --color-brand-b:        var(--brand-b);
+  --font-sans:            var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono:            var(--font-geist-mono), ui-monospace, monospace;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
 }
 
-/* Consistent dark select/input styling on all browsers */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--heading);
+}
+
+/* Gradient text — Sharper logo wordmark and highlight headings */
+.text-brand-gradient {
+  background: linear-gradient(90deg, var(--brand-start), var(--brand-end));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Primary — brand gradient, flat (no shadow) */
+.btn-brand {
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(135deg, var(--brand-start) 0%, var(--brand-end) 100%);
+  color: var(--heading);
+  font-weight: 600;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+
+.btn-brand:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btn-brand:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Secondary / ghost — outline only */
+.btn-ghost {
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--heading);
+  font-weight: 500;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: rgba(240, 240, 248, 0.06);
+}
+
+.btn-ghost:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 select option {
-  background-color: #1a1630;
-  color: #ededed;
+  background-color: var(--surface-raised);
+  color: var(--foreground);
 }

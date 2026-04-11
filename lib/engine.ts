@@ -1,39 +1,15 @@
-import type { Candle } from './coinbase'
+import type {
+  Candle,
+  Trade,
+  BacktestStats,
+  BacktestResult,
+  StrategyFn,
+  StrategySignal,
+  TimeValue,
+} from './types'
 
-export type Trade = {
-  type: 'buy' | 'sell'
-  price: number
-  quantity: number
-  time: number
-  value: number
-  pnl?: number          // Only set on sell trades
-  pnlPct?: number       // % gain/loss relative to entry cost
-}
-
-export type BacktestResult = {
-  trades: Trade[]
-  equityCurve: { time: number; value: number }[]
-  stats: BacktestStats
-}
-
-export type BacktestStats = {
-  totalReturn: number       // % return over the period
-  totalReturnAbs: number    // $ return over the period
-  winRate: number           // % of closed trades that were profitable
-  totalTrades: number       // number of completed (sell) trades
-  maxDrawdown: number       // % max peak-to-trough drawdown
-  sharpeRatio: number       // annualised Sharpe (risk-free rate = 0)
-  bestTrade: number         // best single trade % gain
-  worstTrade: number        // worst single trade % loss
-}
-
-export type StrategySignal = 'buy' | 'sell' | 'hold'
-
-export type StrategyFn = (
-  candles: Candle[],
-  index: number,
-  position: { inPosition: boolean; entryPrice: number },
-) => StrategySignal
+// Re-export for backward compatibility
+export type { Trade, BacktestStats, BacktestResult, StrategyFn, StrategySignal }
 
 export function runBacktest(
   candles: Candle[],
@@ -48,11 +24,11 @@ export function runBacktest(
   let cash = initialCapital
   let holdings = 0
   let entryPrice = 0
-  let entryValue = 0  // cost basis including fee
+  let entryValue = 0
   let inPosition = false
 
   const trades: Trade[] = []
-  const equityCurve: { time: number; value: number }[] = []
+  const equityCurve: TimeValue[] = []
 
   for (let i = 0; i < candles.length; i++) {
     const candle = candles[i]
@@ -116,7 +92,6 @@ export function runBacktest(
       pnlPct,
     })
     cash += proceeds
-    // Update the last equity point to reflect the close
     if (equityCurve.length > 0) {
       equityCurve[equityCurve.length - 1].value = cash
     }
@@ -128,7 +103,7 @@ export function runBacktest(
 
 function calcStats(
   trades: Trade[],
-  equityCurve: { time: number; value: number }[],
+  equityCurve: TimeValue[],
   initialCapital: number,
 ): BacktestStats {
   const sellTrades = trades.filter(t => t.type === 'sell')
@@ -144,15 +119,31 @@ function calcStats(
     if (drawdown > maxDrawdown) maxDrawdown = drawdown
   }
 
-  // Sharpe ratio — annualised from per-candle returns
+  // Derive annualization factor from actual candle spacing
+  let periodsPerYear = 365
+  if (equityCurve.length > 1) {
+    const totalMs = equityCurve[equityCurve.length - 1].time - equityCurve[0].time
+    const avgStepMs = totalMs / (equityCurve.length - 1)
+    // Use calendar-year ms for crypto (24/7); this approximates well for stocks too
+    periodsPerYear = (365.25 * 24 * 3600 * 1000) / avgStepMs
+  }
+  const annFactor = Math.sqrt(periodsPerYear)
+
   const returns = equityCurve.slice(1).map((p, i) => {
     const prev = equityCurve[i].value
     return prev > 0 ? (p.value - prev) / prev : 0
   })
-  const avgReturn = returns.reduce((s, r) => s + r, 0) / (returns.length || 1)
-  const variance = returns.reduce((s, r) => s + (r - avgReturn) ** 2, 0) / (returns.length || 1)
+
+  const n = returns.length || 1
+  const avgReturn = returns.reduce((s, r) => s + r, 0) / n
+  const variance = returns.reduce((s, r) => s + (r - avgReturn) ** 2, 0) / n
   const stdDev = Math.sqrt(variance)
-  const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(365) : 0
+  const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * annFactor : 0
+
+  // Sortino: downside deviation uses the same denominator (n) as variance for consistency
+  const downsideVariance = returns.reduce((s, r) => s + (r < 0 ? r ** 2 : 0), 0) / n
+  const downsideDev = Math.sqrt(downsideVariance)
+  const sortinoRatio = downsideDev > 0 ? (avgReturn / downsideDev) * annFactor : 0
 
   const pnlPcts = sellTrades.map(t => t.pnlPct ?? 0)
 
@@ -163,6 +154,7 @@ function calcStats(
     totalTrades: sellTrades.length,
     maxDrawdown: maxDrawdown * 100,
     sharpeRatio,
+    sortinoRatio,
     bestTrade:  pnlPcts.length > 0 ? Math.max(...pnlPcts) : 0,
     worstTrade: pnlPcts.length > 0 ? Math.min(...pnlPcts) : 0,
   }
