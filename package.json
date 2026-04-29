@@ -7,7 +7,8 @@
     "dev:webpack": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "preview": "next build && next start"
+    "preview": "next build && next start",
+    "test": "vitest run"
   },
   "dependencies": {
     "lightweight-charts": "^5.1.0",
@@ -22,6 +23,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.5"
   }
 }

@@ -1,5 +1,5 @@
 import type { Candle, Product } from './types'
-import { fetchProducts as fetchCryptoProducts, fetchCandles as fetchCryptoCandles } from './coinbase'
+import { fetchProducts as fetchCryptoProducts, fetchCandles as fetchCryptoCandles } from './binance'
 import {
   fetchStockProducts,
   fetchTwelveDataCandles,
@@ -30,8 +30,8 @@ export async function fetchCandles(
   return fetchCryptoCandles(symbol, interval, startMs, endMs)
 }
 
-export const CRYPTO_INTERVALS = ['1h', '4h', '1d']
-export const STOCK_INTERVALS  = ['5m', '15m', '1h', '1d']
+export const CRYPTO_INTERVALS = ['1h', '4h', '1d', '1w']
+export const STOCK_INTERVALS  = ['5m', '15m', '1h', '1d', '1w']
 
 export const INTERVAL_LABELS: Record<string, string> = {
   '5m':  '5 min',
@@ -39,4 +39,5 @@ export const INTERVAL_LABELS: Record<string, string> = {
   '1h':  '1 hour',
   '4h':  '4 hours',
   '1d':  '1 day',
+  '1w':  '1 week',
 }

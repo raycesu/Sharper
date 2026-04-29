@@ -15,34 +15,16 @@ import {
 } from 'recharts'
 import InstrumentSelector from '@/components/InstrumentSelector'
 import type { BacktestApiResponse, BacktestStats, RunResult } from '@/lib/types'
-import { CRYPTO_INTERVALS, STOCK_INTERVALS, INTERVAL_LABELS } from '@/lib/market-data'
-import { brand } from '@/lib/brand'
+import { INTERVAL_LABELS } from '@/lib/market-data'
+import { STRATEGY_REGISTRY } from '@/lib/strategies'
 
 const PriceChart = dynamic(() => import('@/components/PriceChart'), { ssr: false })
-
-const STRATEGIES = [
-  { label: 'RSI oversold / overbought', value: 'rsi' },
-  { label: 'Golden cross (EMA)',         value: 'golden-cross' },
-  { label: 'MACD signal cross',          value: 'macd' },
-]
+const WEEKLY_INTERVAL = '1w'
 
 const ASSET_CLASSES = [
   { label: 'Crypto', value: 'crypto' as const },
   { label: 'Stocks', value: 'stock'  as const },
 ]
-
-// ── Strategy param sub-form ────────────────────────────────────────────────
-type StrategyParamsState = {
-  strategy:      string
-  rsiOversold:   number
-  rsiOverbought: number
-  fastPeriod:    number
-  slowPeriod:    number
-}
-
-function defaultParams(strategy: string): StrategyParamsState {
-  return { strategy, rsiOversold: 30, rsiOverbought: 70, fastPeriod: 50, slowPeriod: 200 }
-}
 
 const FIELD_LABEL =
   'mb-1.5 block text-[12px] font-normal tracking-[0.03em] text-[#555568]'
@@ -51,70 +33,6 @@ const FIELD_LABEL =
 const RESULT_CARD =
   'relative overflow-visible rounded-[10px] border border-[#1E1E2A] bg-[#111116] p-4'
 const CHART_SHELL = 'rounded-xl border border-[#1E1E2A] bg-[#111116]'
-
-type StrategyConfigProps = {
-  state:    StrategyParamsState
-  onChange: (next: StrategyParamsState) => void
-  inputCls: string
-  label:    string
-}
-
-function StrategyConfig({ state, onChange, inputCls, label }: StrategyConfigProps) {
-  const set = (partial: Partial<StrategyParamsState>) => onChange({ ...state, ...partial })
-
-  return (
-    <>
-      <div>
-        <label className={FIELD_LABEL}>{label}</label>
-        <select
-          value={state.strategy}
-          onChange={e => onChange(defaultParams(e.target.value))}
-          className={inputCls}
-        >
-          {STRATEGIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </select>
-      </div>
-
-      {state.strategy === 'rsi' && <>
-        <div>
-          <label className={FIELD_LABEL}>RSI oversold</label>
-          <input
-            type="number" value={state.rsiOversold} min={1} max={49}
-            onChange={e => set({ rsiOversold: Number(e.target.value) })}
-            className={inputCls}
-          />
-        </div>
-        <div>
-          <label className={FIELD_LABEL}>RSI overbought</label>
-          <input
-            type="number" value={state.rsiOverbought} min={51} max={99}
-            onChange={e => set({ rsiOverbought: Number(e.target.value) })}
-            className={inputCls}
-          />
-        </div>
-      </>}
-
-      {state.strategy === 'golden-cross' && <>
-        <div>
-          <label className={FIELD_LABEL}>Fast EMA period</label>
-          <input
-            type="number" value={state.fastPeriod} min={2}
-            onChange={e => set({ fastPeriod: Number(e.target.value) })}
-            className={inputCls}
-          />
-        </div>
-        <div>
-          <label className={FIELD_LABEL}>Slow EMA period</label>
-          <input
-            type="number" value={state.slowPeriod} min={3}
-            onChange={e => set({ slowPeriod: Number(e.target.value) })}
-            className={inputCls}
-          />
-        </div>
-      </>}
-    </>
-  )
-}
 
 // ── Metric explanations ────────────────────────────────────────────────────
 const METRIC_HINTS = {
@@ -378,32 +296,38 @@ function EquityChart({ result, initialCapital, compareMode }: EquityChartProps) 
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function BacktestPage() {
   const [assetClass, setAssetClass] = useState<'crypto' | 'stock'>('crypto')
-  const [productId, setProductId]   = useState('BTC-USD')
-  const [interval, setInterval]     = useState('1d')
+  const [productId, setProductId]   = useState('BTCUSDT')
   const [startDate, setStartDate]   = useState('2023-01-01')
   const [endDate, setEndDate]       = useState('2024-01-01')
   const [capital, setCapital]       = useState(10000)
 
-  const [primary, setPrimary] = useState<StrategyParamsState>(defaultParams('rsi'))
-
-  const [compareMode, setCompareMode] = useState(false)
-  const [compare, setCompare]         = useState<StrategyParamsState>(defaultParams('macd'))
-
   const [loading, setLoading] = useState(false)
   const [result,  setResult]  = useState<BacktestApiResponse | null>(null)
   const [error,   setError]   = useState<string | null>(null)
-
-  const intervals = assetClass === 'stock' ? STOCK_INTERVALS : CRYPTO_INTERVALS
+  const hasActiveStrategies = STRATEGY_REGISTRY.length > 0
 
   const handleAssetClassChange = (cls: 'crypto' | 'stock') => {
     setAssetClass(cls)
-    setProductId(cls === 'stock' ? 'AAPL' : 'BTC-USD')
-    const available = cls === 'stock' ? STOCK_INTERVALS : CRYPTO_INTERVALS
-    if (!available.includes(interval)) setInterval('1d')
+    setProductId(cls === 'stock' ? 'AAPL' : 'BTCUSDT')
     setResult(null)
   }
 
+  const formatBacktestError = (message: string) => {
+    if (message.includes('No Binance spot symbol found')) {
+      return 'Symbol not found on Binance Global or Binance US spot markets. Try another ticker/pair (for example BTCUSDT or HYPEUSDT).'
+    }
+    if (message.includes('Binance klines API error')) {
+      return 'Unable to fetch candles from Binance right now. Please try again shortly or choose another symbol.'
+    }
+    return message
+  }
+
   const run = async () => {
+    if (!hasActiveStrategies) {
+      setError('No active strategies configured yet. Add one in code to re-enable backtesting.')
+      return
+    }
+
     setLoading(true)
     setError(null)
     setResult(null)
@@ -411,23 +335,11 @@ export default function BacktestPage() {
       const body: Record<string, unknown> = {
         assetClass,
         productId,
-        interval,
+        interval: WEEKLY_INTERVAL,
         startDate,
         endDate,
-        strategy:       primary.strategy,
         initialCapital: capital,
-        rsiOversold:    primary.rsiOversold,
-        rsiOverbought:  primary.rsiOverbought,
-        fastPeriod:     primary.fastPeriod,
-        slowPeriod:     primary.slowPeriod,
-      }
-
-      if (compareMode) {
-        body.compareStrategy      = compare.strategy
-        body.compareRsiOversold   = compare.rsiOversold
-        body.compareRsiOverbought = compare.rsiOverbought
-        body.compareFastPeriod    = compare.fastPeriod
-        body.compareSlowPeriod    = compare.slowPeriod
+        strategyId: 'market-rsi-divergence',
       }
 
       const res  = await fetch('/api/backtest', {
@@ -439,7 +351,8 @@ export default function BacktestPage() {
       if (!res.ok) throw new Error(data.error ?? 'Unknown error')
       setResult(data as BacktestApiResponse)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Unknown error')
+      const message = e instanceof Error ? e.message : 'Unknown error'
+      setError(formatBacktestError(message))
     } finally {
       setLoading(false)
     }
@@ -450,19 +363,8 @@ export default function BacktestPage() {
     'focus:border-[#6B8EFF] focus:outline-none transition-colors placeholder:text-[#555568]'
 
   const primaryRun  = result?.runs[0] ?? null
-  const compareRun  = result?.runs[1] ?? null
 
-  const overlayLabel =
-    primaryRun?.overlays.strategy === 'golden-cross'
-      ? 'Fast EMA: blue  ·  Slow EMA: yellow'
-      : primaryRun?.overlays.strategy === 'rsi'
-        ? 'RSI (14)  ·  Red dashed = oversold  ·  Green dashed = overbought'
-        : primaryRun?.overlays.strategy === 'macd'
-          ? 'MACD: blue  ·  Signal: yellow  ·  Histogram: green / red'
-          : ''
-
-  const SECTION_EYEBROW =
-    'mb-4 text-[10px] font-medium uppercase tracking-[0.12em] text-[#555568]'
+  const overlayLabel = 'RSI 14 · Oversold 40 · Overbought 60'
 
   return (
     <div className="min-h-screen bg-[#0D0D0F] text-foreground px-6 py-8 max-w-7xl mx-auto">
@@ -516,11 +418,13 @@ export default function BacktestPage() {
         </div>
         <div>
           <label className={FIELD_LABEL}>Interval</label>
-          <select value={interval} onChange={e => setInterval(e.target.value)} className={inputCls}>
-            {intervals.map(v => (
-              <option key={v} value={v}>{INTERVAL_LABELS[v] ?? v}</option>
-            ))}
-          </select>
+          <input
+            value={INTERVAL_LABELS[WEEKLY_INTERVAL] ?? WEEKLY_INTERVAL}
+            className={inputCls}
+            aria-label="Strategy interval locked to weekly"
+            readOnly
+            disabled
+          />
         </div>
         <div>
           <label className={FIELD_LABEL}>Start date</label>
@@ -540,56 +444,23 @@ export default function BacktestPage() {
         </div>
       </div>
 
-      {/* Strategy config blocks */}
-      <div className={`grid gap-4 mb-6 ${compareMode ? 'md:grid-cols-2' : 'md:grid-cols-1'}`}>
-        <div className="rounded-xl border border-[#1E1E2A] bg-[#111116] py-5 px-6">
-          <div className={SECTION_EYEBROW}>{compareMode ? 'STRATEGY A' : 'STRATEGY'}</div>
-          <div className="grid grid-cols-2 gap-3">
-            <StrategyConfig
-              state={primary}
-              onChange={setPrimary}
-              inputCls={inputCls}
-              label="Strategy"
-            />
+      {!hasActiveStrategies && (
+        <div className="mb-6 rounded-xl border border-[#1E1E2A] bg-[#111116] px-6 py-5">
+          <div className="text-[12px] text-[#A0A0B0]">
+            No strategies are currently active. Add new strategies in `lib/strategies.ts`, then wire them in `app/api/backtest/route.ts`.
           </div>
         </div>
-
-        {compareMode && (
-          <div className="rounded-xl border border-[#1E1E2A] bg-[#111116] py-5 px-6">
-            <div className={SECTION_EYEBROW}>STRATEGY B</div>
-            <div className="grid grid-cols-2 gap-3">
-              <StrategyConfig
-                state={compare}
-                onChange={setCompare}
-                inputCls={inputCls}
-                label="Strategy"
-              />
-            </div>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Action row */}
       <div className="mb-10 flex flex-wrap items-center gap-3">
         <button
           onClick={run}
-          disabled={loading}
+          disabled={loading || !hasActiveStrategies}
           type="button"
           className="rounded-lg border-0 bg-gradient-to-r from-[#6B8EFF] to-[#7C5CFC] px-6 py-[10px] text-[14px] font-medium text-white transition-[filter] hover:enabled:brightness-[1.06] disabled:opacity-45"
         >
           {loading ? 'Running…' : 'Run backtest'}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setCompareMode(m => !m)}
-          className={`rounded-lg border px-5 py-[10px] text-[14px] font-medium transition-colors ${
-            compareMode
-              ? 'border-[#2A2A3A] bg-transparent text-[#F0F0F8] hover:border-[#6B8EFF]/50'
-              : 'border-[#2A2A3A] bg-transparent text-[#A0A0B0] hover:text-[#F0F0F8]'
-          }`}
-        >
-          {compareMode ? '✕ Exit comparison' : '⇄ Compare strategies'}
         </button>
       </div>
 
@@ -604,15 +475,9 @@ export default function BacktestPage() {
           {/* Stats */}
           <div className={`${CHART_SHELL} p-5 mb-5`}>
             <div className="mb-4 text-[11px] font-normal uppercase tracking-[0.05em] text-[#555568]">
-              {compareMode && compareRun
-                ? `Strategy comparison · ${productId} · ${result.candleCount} candles`
-                : `Summary · ${productId} · ${result.candleCount} candles`}
+              {`Summary · ${productId} · ${result.candleCount} candles`}
             </div>
-            {compareMode && compareRun ? (
-              <CompareStats runs={result.runs} initialCapital={capital} />
-            ) : (
-              <StatsGrid stats={primaryRun.stats} initialCapital={capital} />
-            )}
+            <StatsGrid stats={primaryRun.stats} initialCapital={capital} />
           </div>
 
           {/* Price chart */}
@@ -627,7 +492,7 @@ export default function BacktestPage() {
               candles={result.candles}
               trades={primaryRun.trades}
               overlays={primaryRun.overlays}
-              compareTrades={compareMode && compareRun ? compareRun.trades : undefined}
+              compareTrades={undefined}
             />
           </div>
 
@@ -640,26 +505,20 @@ export default function BacktestPage() {
                   <span className="mr-1.5 inline-block h-0.5 w-4 align-middle bg-[#6B8EFF]" />
                   {primaryRun.label}
                 </span>
-                {compareMode && compareRun && (
-                  <span>
-                    <span className="mr-1.5 inline-block h-0.5 w-4 align-middle bg-[#7C5CFC]" />
-                    {compareRun.label}
-                  </span>
-                )}
                 <span>
                   <span className="mr-1.5 inline-block h-0.5 w-4 align-middle border-t border-dashed border-[#7C5CFC]" />
                   Buy &amp; Hold
                 </span>
               </div>
             </div>
-            <EquityChart result={result} initialCapital={capital} compareMode={compareMode} />
+            <EquityChart result={result} initialCapital={capital} compareMode={false} />
           </div>
 
           {/* Trade log */}
-          {[primaryRun, ...(compareMode && compareRun ? [compareRun] : [])].map((run, ri) => (
+          {[primaryRun].map((run, ri) => (
             <div key={ri} className={`${CHART_SHELL} mb-4 p-4`}>
               <div className="mb-4 text-[11px] font-normal uppercase tracking-[0.05em] text-[#555568]">
-                {compareMode ? `${run.label} trade log` : 'Trade log'} ({run.trades.length} entries)
+                Trade log ({run.trades.length} entries)
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">

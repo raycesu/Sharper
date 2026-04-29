@@ -15,6 +15,7 @@ const INTERVAL_MAP: Record<string, string> = {
   '15m': '15min',
   '1h':  '1h',
   '1d':  '1day',
+  '1w':  '1week',
 }
 
 const INTERVAL_STEP_MS: Record<string, number> = {
@@ -22,6 +23,7 @@ const INTERVAL_STEP_MS: Record<string, number> = {
   '15min': 15 * 60 * 1000,
   '1h':    60 * 60 * 1000,
   '1day':  24 * 60 * 60 * 1000,
+  '1week': 7 * 24 * 60 * 60 * 1000,
 }
 
 // ── Curated stock universe (shown before the user types anything) ──────────

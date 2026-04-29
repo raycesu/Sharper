@@ -1,80 +1,62 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchCandles, CRYPTO_INTERVALS, STOCK_INTERVALS } from '@/lib/market-data'
+import { rsi } from '@/lib/indicators'
 import { runBacktest } from '@/lib/engine'
-import {
-  makeRsiStrategy,
-  makeGoldenCrossStrategy,
-  makeMacdStrategy,
-} from '@/lib/strategies'
-import { rsi, ema, macd } from '@/lib/indicators'
-import type {
-  OverlayData,
-  TimeValue,
-  Candle,
-  BacktestApiResponse,
-  RunResult,
-  StrategyFn,
-} from '@/lib/types'
+import { fetchCandles } from '@/lib/market-data'
+import { CRYPTO_INTERVALS, STOCK_INTERVALS } from '@/lib/market-data'
+import { STRATEGY_REGISTRY } from '@/lib/strategies'
+import type { Candle, TimeValue } from '@/lib/types'
 
-interface StrategyParams {
-  rsiOversold: number
-  rsiOverbought: number
-  fastPeriod: number
-  slowPeriod: number
-}
+function normalizeCryptoBaseSymbol(productId: string): string {
+  const normalized = productId.trim().toUpperCase().replace(/[-_/]/g, '')
+  const quotes = ['USDT', 'USDC', 'USD', 'BTC', 'ETH', 'BNB']
 
-function buildStrategy(strategy: string, params: StrategyParams): StrategyFn {
-  switch (strategy) {
-    case 'rsi':          return makeRsiStrategy(params.rsiOversold, params.rsiOverbought)
-    case 'golden-cross': return makeGoldenCrossStrategy(params.fastPeriod, params.slowPeriod)
-    default:             return makeMacdStrategy()
-  }
-}
-
-function toTimeValues(candles: Candle[], values: (number | null)[]): TimeValue[] {
-  return candles
-    .map((c, i) => ({ time: c.time, value: values[i] }))
-    .filter((p): p is TimeValue => p.value !== null)
-}
-
-function buildOverlays(strategy: string, params: StrategyParams, candles: Candle[]): OverlayData {
-  if (strategy === 'rsi') {
-    return {
-      strategy: 'rsi',
-      rsi: toTimeValues(candles, rsi(candles)),
-      oversold:   params.rsiOversold,
-      overbought: params.rsiOverbought,
+  for (const quote of quotes) {
+    if (normalized.endsWith(quote) && normalized.length > quote.length) {
+      return normalized.slice(0, -quote.length)
     }
   }
-  if (strategy === 'golden-cross') {
-    return {
-      strategy: 'golden-cross',
-      fastEma: toTimeValues(candles, ema(candles, params.fastPeriod)),
-      slowEma:  toTimeValues(candles, ema(candles, params.slowPeriod)),
-    }
-  }
-  const m = macd(candles)
-  return {
-    strategy: 'macd',
-    macdLine:   toTimeValues(candles, m.macdLine),
-    signalLine: toTimeValues(candles, m.signalLine),
-    histogram:  toTimeValues(candles, m.histogram),
-  }
+
+  return normalized
 }
 
-const STRATEGY_LABELS: Record<string, string> = {
-  'rsi':          'RSI',
-  'golden-cross': 'Golden Cross',
-  'macd':         'MACD',
+function resolveBenchmark(
+  assetClass: 'crypto' | 'stock',
+  productId: string,
+): { assetClass: 'crypto' | 'stock'; productId: string } {
+  if (assetClass === 'stock') {
+    return { assetClass: 'stock', productId: 'SPY' }
+  }
+
+  const base = normalizeCryptoBaseSymbol(productId)
+  if (base === 'BTC') {
+    return { assetClass: 'stock', productId: 'SPY' }
+  }
+
+  return { assetClass: 'crypto', productId: 'BTCUSDT' }
 }
 
-function buildBenchmarkCurve(candles: Candle[], initialCapital: number): TimeValue[] {
-  if (candles.length === 0) return []
-  const startClose = candles[0].close
-  return candles.map(c => ({
-    time:  c.time,
-    value: initialCapital * (c.close / startClose),
-  }))
+function buildBenchmarkCurve(
+  assetCandles: Candle[],
+  benchmarkCandles: Candle[],
+  initialCapital: number,
+): TimeValue[] {
+  if (assetCandles.length === 0 || benchmarkCandles.length === 0) return []
+
+  const benchmarkByTime = new Map<number, Candle>()
+  for (const candle of benchmarkCandles) benchmarkByTime.set(candle.time, candle)
+
+  const firstBenchmark = benchmarkByTime.get(assetCandles[0].time)
+  if (!firstBenchmark) return []
+
+  const initialPrice = firstBenchmark.close
+  return assetCandles
+    .map(candle => {
+      const benchmark = benchmarkByTime.get(candle.time)
+      if (!benchmark) return null
+      const growth = benchmark.close / initialPrice
+      return { time: candle.time, value: initialCapital * growth }
+    })
+    .filter((value): value is TimeValue => value !== null)
 }
 
 export async function POST(req: NextRequest) {
@@ -82,23 +64,15 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const {
       assetClass      = 'crypto',
-      productId       = 'BTC-USD',
+      productId       = 'BTCUSDT',
       interval        = '1d',
       startDate,
       endDate,
-      strategy        = 'rsi',
       initialCapital  = 10000,
-      rsiOversold     = 30,
-      rsiOverbought   = 70,
-      fastPeriod      = 50,
-      slowPeriod      = 200,
-      // Optional second strategy for comparison mode
-      compareStrategy,
-      compareRsiOversold  = 30,
-      compareRsiOverbought = 70,
-      compareFastPeriod   = 50,
-      compareSlowPeriod   = 200,
+      strategyId      = 'market-rsi-divergence',
     } = body
+    const isWeeklyOnlyStrategy = strategyId === 'market-rsi-divergence'
+    const resolvedInterval = isWeeklyOnlyStrategy ? '1w' : interval
 
     if (!startDate || !endDate) {
       return NextResponse.json({ error: 'startDate and endDate are required' }, { status: 400 })
@@ -114,76 +88,87 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'startDate must be before endDate' }, { status: 400 })
     }
 
-    // Validate that the interval is supported for the requested asset class
     const allowedIntervals = assetClass === 'stock' ? STOCK_INTERVALS : CRYPTO_INTERVALS
-    if (!allowedIntervals.includes(interval)) {
+    if (!allowedIntervals.includes(resolvedInterval)) {
       return NextResponse.json(
-        { error: `Interval "${interval}" is not supported for ${assetClass}. Use one of: ${allowedIntervals.join(', ')}` },
+        { error: `Interval "${resolvedInterval}" is not supported for ${assetClass}. Use one of: ${allowedIntervals.join(', ')}` },
         { status: 400 },
       )
     }
 
-    const intradayIntervals = ['5m', '15m', '1h']
-
-    const candles = await fetchCandles(assetClass, productId, interval, startTime, endTime)
-
-    if (candles.length < 50) {
-      const isIntradayStock = assetClass === 'stock' && intradayIntervals.includes(interval)
-      const hint = isIntradayStock
-        ? ' Intraday history depends on your Twelve Data plan — try a shorter range or use the "1 day" interval.'
-        : ''
+    const selectedStrategy = STRATEGY_REGISTRY.find(strategy => strategy.id === strategyId)
+    if (!selectedStrategy) {
       return NextResponse.json(
-        { error: `Not enough candle data for this range (got ${candles.length}, need at least 50).${hint}` },
+        { error: `Unknown strategy "${strategyId}"` },
         { status: 400 },
       )
     }
 
-    // Primary run
-    const primaryParams: StrategyParams = { rsiOversold, rsiOverbought, fastPeriod, slowPeriod }
-    const primaryResult = runBacktest(candles, buildStrategy(strategy, primaryParams), {
-      initialCapital,
-      positionSizePct: 1.0,
+    const candles = await fetchCandles(assetClass, productId, resolvedInterval, startTime, endTime)
+    if (candles.length < 20) {
+      return NextResponse.json(
+        { error: 'Not enough candle data to run this strategy for the requested range' },
+        { status: 400 },
+      )
+    }
+
+    const benchmarkTarget = resolveBenchmark(assetClass, productId)
+    const benchmarkCandles = await fetchCandles(
+      benchmarkTarget.assetClass,
+      benchmarkTarget.productId,
+      resolvedInterval,
+      startTime,
+      endTime,
+    )
+
+    if (benchmarkCandles.length < 20) {
+      return NextResponse.json(
+        { error: 'Not enough benchmark data to run this strategy for the requested range' },
+        { status: 400 },
+      )
+    }
+
+    const strategy = selectedStrategy.create({
+      assetCandles: candles,
+      benchmarkCandles,
+    })
+
+    const result = runBacktest(candles, strategy, {
+      initialCapital: Number(initialCapital),
+      positionSizePct: 1,
       fee: 0.001,
     })
 
-    const runs: RunResult[] = [{
-      label:       STRATEGY_LABELS[strategy] ?? strategy,
-      trades:      primaryResult.trades,
-      equityCurve: primaryResult.equityCurve,
-      stats:       primaryResult.stats,
-      overlays:    buildOverlays(strategy, primaryParams, candles),
-    }]
-
-    // Optional comparison run — runs on identical candles
-    if (compareStrategy) {
-      const cmpParams: StrategyParams = {
-        rsiOversold:  compareRsiOversold,
-        rsiOverbought: compareRsiOverbought,
-        fastPeriod:   compareFastPeriod,
-        slowPeriod:   compareSlowPeriod,
-      }
-      const cmpResult = runBacktest(candles, buildStrategy(compareStrategy, cmpParams), {
-        initialCapital,
-        positionSizePct: 1.0,
-        fee: 0.001,
-      })
-      runs.push({
-        label:       STRATEGY_LABELS[compareStrategy] ?? compareStrategy,
-        trades:      cmpResult.trades,
-        equityCurve: cmpResult.equityCurve,
-        stats:       cmpResult.stats,
-        overlays:    buildOverlays(compareStrategy, cmpParams, candles),
-      })
+    const rsiSeries = rsi(candles, 14)
+    const overlays = {
+      strategy: 'rsi' as const,
+      rsi: candles
+        .map((candle, index) => {
+          const value = rsiSeries[index]
+          if (value == null) return null
+          return { time: candle.time, value }
+        })
+        .filter((value): value is TimeValue => value !== null),
+      oversold: 40,
+      overbought: 60,
     }
 
-    const response: BacktestApiResponse = {
-      runs,
-      benchmarkCurve: buildBenchmarkCurve(candles, initialCapital),
+    const benchmarkCurve = buildBenchmarkCurve(candles, benchmarkCandles, Number(initialCapital))
+
+    return NextResponse.json({
+      runs: [
+        {
+          label: selectedStrategy.label,
+          trades: result.trades,
+          equityCurve: result.equityCurve,
+          stats: result.stats,
+          overlays,
+        },
+      ],
+      benchmarkCurve,
       candles,
       candleCount: candles.length,
-    }
-
-    return NextResponse.json(response)
+    })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: message }, { status: 500 })

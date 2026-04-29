@@ -7,6 +7,7 @@ export type Candle = {
   low: number
   close: number
   volume: number
+  quoteVolume?: number
 }
 
 export type Product = {

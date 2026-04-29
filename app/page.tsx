@@ -43,7 +43,7 @@ export default function Home() {
       </div>
 
       <p className="mt-14 text-[11px] text-[#555568] max-w-sm">
-        Powered by Coinbase &amp; Twelve Data · Past performance is not indicative of future results
+        Powered by Binance &amp; Twelve Data · Past performance is not indicative of future results
       </p>
     </div>
   )
