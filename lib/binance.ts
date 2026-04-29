@@ -102,15 +102,29 @@ async function fetchExchangeInfoForVenue(venue: string): Promise<BinanceExchange
 async function fetchExchangeInfo(): Promise<VenueSymbol[]> {
   const allSymbols: VenueSymbol[] = []
   const dedupe = new Set<string>()
+  const venueErrors: string[] = []
 
   for (const venue of BINANCE_VENUES) {
-    const symbols = await fetchExchangeInfoForVenue(venue)
+    let symbols: BinanceExchangeSymbol[] = []
+    try {
+      symbols = await fetchExchangeInfoForVenue(venue)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      venueErrors.push(`${venue}: ${message}`)
+      continue
+    }
+
     for (const symbol of symbols) {
       const dedupeKey = `${venue}:${symbol.symbol}`
       if (dedupe.has(dedupeKey)) continue
       dedupe.add(dedupeKey)
       allSymbols.push({ ...symbol, venue })
     }
+  }
+
+  if (allSymbols.length === 0) {
+    const details = venueErrors.length > 0 ? ` (${venueErrors.join(' | ')})` : ''
+    throw new Error(`Unable to load Binance symbols from all configured venues${details}`)
   }
 
   return allSymbols
@@ -228,6 +242,34 @@ async function fetchKlineChunk(
   }))
 }
 
+async function fetchCandlesFromVenue(
+  venue: string,
+  symbol: string,
+  interval: string,
+  startTime: number,
+  endTime: number,
+): Promise<Candle[]> {
+  const allCandles: Candle[] = []
+  const intervalMs = INTERVAL_MS[interval]
+  let cursor = startTime
+
+  while (cursor < endTime) {
+    const chunk = await fetchKlineChunk(venue, symbol, interval, cursor, endTime)
+    if (chunk.length === 0) break
+
+    allCandles.push(...chunk)
+
+    const lastCandleTime = chunk[chunk.length - 1].time
+    const nextCursor = lastCandleTime + intervalMs
+    if (nextCursor <= cursor) break
+    cursor = nextCursor
+
+    if (chunk.length < MAX_CANDLES_PER_REQUEST) break
+  }
+
+  return allCandles
+}
+
 export async function fetchCandles(
   productId: string,
   interval: string,
@@ -243,21 +285,24 @@ export async function fetchCandles(
   if (startTime >= endTime) return []
 
   const resolved = await resolveBinanceSymbol(productId)
-  const allCandles: Candle[] = []
-  let cursor = startTime
+  const venueOrder = [resolved.venue, ...BINANCE_VENUES.filter(venue => venue !== resolved.venue)]
+  const venueErrors: string[] = []
+  let allCandles: Candle[] = []
 
-  while (cursor < endTime) {
-    const chunk = await fetchKlineChunk(resolved.venue, resolved.symbol, mappedInterval, cursor, endTime)
-    if (chunk.length === 0) break
+  for (const venue of venueOrder) {
+    try {
+      allCandles = await fetchCandlesFromVenue(venue, resolved.symbol, mappedInterval, startTime, endTime)
+      break
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      venueErrors.push(`${venue}: ${message}`)
+      allCandles = []
+      continue
+    }
+  }
 
-    allCandles.push(...chunk)
-
-    const lastCandleTime = chunk[chunk.length - 1].time
-    const nextCursor = lastCandleTime + intervalMs
-    if (nextCursor <= cursor) break
-    cursor = nextCursor
-
-    if (chunk.length < MAX_CANDLES_PER_REQUEST) break
+  if (allCandles.length === 0 && venueErrors.length > 0) {
+    throw new Error(`Unable to load Binance candles for ${resolved.symbol} (${venueErrors.join(' | ')})`)
   }
 
   const seen = new Set<number>()
