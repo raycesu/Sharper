@@ -5,6 +5,7 @@ Sharper is a Next.js app for **backtesting crypto and equity strategies** agains
 - **Crypto data**: Binance (global + Binance US symbol resolution)
 - **Equity data**: Twelve Data (curated universe + live symbol search)
 - **Execution model**: Server-side backtest API with deterministic strategy logic
+- **Intervals**: Every strategy currently registered uses **weekly** candles (`1w`). The `/api/backtest` route and the backtest UI coerce the interval to `1w` whenever a weekly-only strategy is selected (see `WEEKLY_ONLY_STRATEGY_IDS` in `app/api/backtest/route.ts`).
 
 No accounts are required. Choose an instrument, date range, and capital, then run simulations directly in the browser.
 
@@ -70,6 +71,8 @@ Defined in `lib/strategies.ts` and run through `app/api/backtest/route.ts`.
   - `Stock` assets benchmark against `SPY` (broad US equity market proxy)
   - `Crypto` assets benchmark against `BTCUSDT` (market beta proxy for most crypto names)
   - `BTC` specifically benchmarks against `SPY` (cross-market comparison versus broad risk asset conditions)
+- **Benchmark timestamps**
+  - Benchmark RSI (and the buy-and-hold benchmark curve) use a **backward as-of** join: for each asset bar, the latest benchmark bar with `time <=` that asset bar is used. That avoids silent `hold` signals when Binance and Twelve Data weekly opens differ slightly.
 - **Entry logic**
   - `assetRSI < 45`
   - `benchmarkRSI > assetRSI + 7.5`

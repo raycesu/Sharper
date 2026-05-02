@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeRSI14, mean, scoreCandleArray, trimmedStats } from './scoreEngine'
+import { computeRSI14, mean, scoreCandleArray } from './scoreEngine'
 import type { Candle } from './types'
 
 const makeCandles = (length: number): Candle[] =>
@@ -35,15 +35,6 @@ describe('scoreEngine', () => {
       expect(value).toBeGreaterThanOrEqual(0)
       expect(value).toBeLessThanOrEqual(100)
     }
-  })
-
-  it('trimmedStats removes top-tail outliers impact', () => {
-    const values = [100, 105, 110, 115, 120, 125, 130, 135, 140, 5000]
-    const rawMean = values.reduce((acc, value) => acc + value, 0) / values.length
-    const trimmed = trimmedStats(values, 0.1)
-
-    expect(trimmed.mean).toBeLessThan(rawMean)
-    expect(trimmed.std).toBeGreaterThan(0)
   })
 
   it('mean of three values', () => {

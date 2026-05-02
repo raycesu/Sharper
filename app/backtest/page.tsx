@@ -219,17 +219,26 @@ type EquityChartProps = {
 
 function EquityChart({ result, initialCapital, compareMode }: EquityChartProps) {
   const data = useMemo(() => {
-    const primary   = result.runs[0].equityCurve
+    const primary = result.runs[0].equityCurve
     const secondary = result.runs[1]?.equityCurve
-    const bench     = result.benchmarkCurve
+    const bench = result.benchmarkCurve
+    const secondaryByTime = new Map((secondary ?? []).map(p => [p.time, p.value]))
+    const benchmarkByTime = new Map(bench.map(p => [p.time, p.value]))
 
-    return primary.map((p, i) => ({
-      time:      p.time,
-      primary:   p.value,
-      secondary: secondary?.[i]?.value,
-      benchmark: bench[i]?.value,
-    }))
-  }, [result])
+    let lastSecondary: number | undefined = compareMode ? initialCapital : undefined
+    let lastBenchmark = benchmarkByTime.get(primary[0]?.time) ?? initialCapital
+
+    return primary.map(p => {
+      if (secondaryByTime.has(p.time)) lastSecondary = secondaryByTime.get(p.time)!
+      if (benchmarkByTime.has(p.time)) lastBenchmark = benchmarkByTime.get(p.time)!
+      return {
+        time:      p.time,
+        primary:   p.value,
+        secondary: compareMode ? lastSecondary : undefined,
+        benchmark: lastBenchmark,
+      }
+    })
+  }, [result, initialCapital, compareMode])
 
   const tickFmt = (v: number) => `$${(v / 1000).toFixed(0)}k`
 
@@ -283,7 +292,7 @@ function EquityChart({ result, initialCapital, compareMode }: EquityChartProps) 
         <Line
           type="monotone"
           dataKey="benchmark"
-          stroke="#7C5CFC"
+          stroke={compareMode ? '#9CA3AF' : '#7C5CFC'}
           dot={false}
           strokeWidth={1}
           strokeDasharray="4 3"
@@ -301,6 +310,7 @@ export default function BacktestPage() {
   const [endDate, setEndDate]       = useState('2024-01-01')
   const [capital, setCapital]       = useState(10000)
   const [strategyId, setStrategyId] = useState('volume-momentum-weekly')
+  const [compareStrategyId, setCompareStrategyId] = useState('')
   const [interval, setInterval] = useState('1w')
 
   const [loading, setLoading] = useState(false)
@@ -314,13 +324,21 @@ export default function BacktestPage() {
     setResult(null)
   }
 
-  const isWeeklyOnlyStrategy = WEEKLY_ONLY_STRATEGY_IDS.has(strategyId)
+  const isWeeklyOnlyStrategy =
+    WEEKLY_ONLY_STRATEGY_IDS.has(strategyId)
+    || (compareStrategyId !== '' && WEEKLY_ONLY_STRATEGY_IDS.has(compareStrategyId))
 
   useEffect(() => {
     if (!isWeeklyOnlyStrategy) return
     if (interval === WEEKLY_INTERVAL) return
     setInterval(WEEKLY_INTERVAL)
   }, [interval, isWeeklyOnlyStrategy])
+
+  useEffect(() => {
+    if (compareStrategyId !== '' && compareStrategyId === strategyId) {
+      setCompareStrategyId('')
+    }
+  }, [strategyId, compareStrategyId])
 
   const formatBacktestError = (message: string) => {
     if (message.includes('No Binance spot symbol found')) {
@@ -351,6 +369,9 @@ export default function BacktestPage() {
         initialCapital: capital,
         strategyId,
       }
+      if (compareStrategyId !== '' && compareStrategyId !== strategyId) {
+        body.compareStrategyId = compareStrategyId
+      }
 
       const res  = await fetch('/api/backtest', {
         method:  'POST',
@@ -372,10 +393,12 @@ export default function BacktestPage() {
     'box-border h-10 w-full rounded-lg border border-[#1E1E2A] bg-[#111116] px-3 text-[14px] text-[#F0F0F8] ' +
     'focus:border-[#6B8EFF] focus:outline-none transition-colors placeholder:text-[#555568]'
 
-  const primaryRun  = result?.runs[0] ?? null
+  const primaryRun = result?.runs[0] ?? null
+  const secondaryRun = result?.runs[1] ?? null
+  const hasCompare = Boolean(result && result.runs.length > 1 && secondaryRun)
 
   const overlayLabel = primaryRun?.overlays.strategy === 'score'
-    ? 'Score Overlay · Strong 1.5 · Entry 1.0 · Exit 0.5'
+    ? 'Score Overlay · Strong 1.5 · Entry 1.0 · Exit −0.5'
     : 'RSI 14 · Oversold 40 · Overbought 60'
   const intervalOptions = assetClass === 'stock' ? STOCK_INTERVALS : CRYPTO_INTERVALS
   const displayedIntervalOptions = isWeeklyOnlyStrategy ? [WEEKLY_INTERVAL] : intervalOptions
@@ -467,6 +490,22 @@ export default function BacktestPage() {
           </select>
         </div>
         <div>
+          <label className={FIELD_LABEL}>Compare with (optional)</label>
+          <select
+            value={compareStrategyId}
+            onChange={e => setCompareStrategyId(e.target.value)}
+            className={inputCls}
+            aria-label="Optional second strategy to compare on the same symbol and range"
+          >
+            <option value="">None</option>
+            {STRATEGY_REGISTRY.map(strategy => (
+              <option key={strategy.id} value={strategy.id} disabled={strategy.id === strategyId}>
+                {strategy.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
           <label className={FIELD_LABEL}>Start date</label>
           <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={inputCls} />
         </div>
@@ -517,7 +556,11 @@ export default function BacktestPage() {
             <div className="mb-4 text-[11px] font-normal uppercase tracking-[0.05em] text-[#555568]">
               {`Summary · ${productId} · ${result.candleCount} candles`}
             </div>
-            <StatsGrid stats={primaryRun.stats} initialCapital={capital} />
+            {hasCompare && secondaryRun ? (
+              <CompareStats runs={[primaryRun, secondaryRun]} initialCapital={capital} />
+            ) : (
+              <StatsGrid stats={primaryRun.stats} initialCapital={capital} />
+            )}
           </div>
 
           {/* Price chart */}
@@ -535,7 +578,7 @@ export default function BacktestPage() {
               candles={result.candles}
               trades={primaryRun.trades}
               overlays={primaryRun.overlays}
-              compareTrades={undefined}
+              compareTrades={hasCompare && secondaryRun ? secondaryRun.trades : undefined}
             />
           </div>
 
@@ -543,25 +586,31 @@ export default function BacktestPage() {
           <div className={`${CHART_SHELL} mb-5 p-4`}>
             <div className="mb-1 flex items-center justify-between">
               <span className="text-[11px] font-normal uppercase tracking-[0.05em] text-[#555568]">Equity curve</span>
-              <div className="flex items-center gap-4 text-[11px] text-[#555568]">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[#555568]">
                 <span>
                   <span className="mr-1.5 inline-block h-0.5 w-4 align-middle bg-[#6B8EFF]" />
                   {primaryRun.label}
                 </span>
+                {hasCompare && secondaryRun && (
+                  <span>
+                    <span className="mr-1.5 inline-block h-0.5 w-4 align-middle bg-[#7C5CFC]" />
+                    {secondaryRun.label}
+                  </span>
+                )}
                 <span>
-                  <span className="mr-1.5 inline-block h-0.5 w-4 align-middle border-t border-dashed border-[#7C5CFC]" />
+                  <span className="mr-1.5 inline-block h-0.5 w-4 align-middle border-t border-dashed border-[#9CA3AF]" />
                   Buy &amp; Hold
                 </span>
               </div>
             </div>
-            <EquityChart result={result} initialCapital={capital} compareMode={false} />
+            <EquityChart result={result} initialCapital={capital} compareMode={Boolean(hasCompare)} />
           </div>
 
           {/* Trade log */}
-          {[primaryRun].map((run, ri) => (
-            <div key={ri} className={`${CHART_SHELL} mb-4 p-4`}>
+          {(hasCompare ? result.runs : [primaryRun]).map((run, ri) => (
+            <div key={`${run.label}-${ri}`} className={`${CHART_SHELL} mb-4 p-4`}>
               <div className="mb-4 text-[11px] font-normal uppercase tracking-[0.05em] text-[#555568]">
-                Trade log ({run.trades.length} entries)
+                Trade log · {run.label} ({run.trades.length} entries)
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">

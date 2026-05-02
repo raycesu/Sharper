@@ -138,29 +138,6 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
       })),
     )
 
-    // ── Pane 0: EMA overlays (golden-cross strategy) ───────────────────
-    if (overlays.strategy === 'golden-cross') {
-      const fastLine = chart.addSeries(LineSeries, {
-        color: LINE_PRIMARY,
-        lineWidth: 1,
-        priceLineVisible: false,
-        lastValueVisible: false,
-        crosshairMarkerVisible: false,
-        title: 'Fast EMA',
-      })
-      fastLine.setData(overlays.fastEma.map(p => ({ time: toSec(p.time), value: p.value })))
-
-      const slowLine = chart.addSeries(LineSeries, {
-        color: LINE_SECONDARY,
-        lineWidth: 1,
-        priceLineVisible: false,
-        lastValueVisible: false,
-        crosshairMarkerVisible: false,
-        title: 'Slow EMA',
-      })
-      slowLine.setData(overlays.slowEma.map(p => ({ time: toSec(p.time), value: p.value })))
-    }
-
     // ── Build trade lookup maps for tooltip ────────────────────────────
     // Primary trades keyed by UTC seconds
     const primaryMap = new Map<number, Trade>()
@@ -259,40 +236,6 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
       const panes = chart.panes()
       if (panes[0]) panes[0].setHeight(300)
       if (panes[1]) panes[1].setHeight(130)
-    }
-
-    // ── Pane 1: MACD ────────────────────────────────────────────────────
-    if (overlays.strategy === 'macd' && overlays.macdLine.length > 0) {
-      const histSeries = chart.addSeries(
-        HistogramSeries,
-        { priceLineVisible: false, lastValueVisible: false, title: '' },
-        1,
-      )
-      histSeries.setData(
-        overlays.histogram.map(p => ({
-          time:  toSec(p.time),
-          value: p.value,
-          color: p.value >= 0 ? 'rgba(74, 222, 128, 0.45)' : 'rgba(248, 113, 113, 0.45)',
-        })),
-      )
-
-      const macdLine = chart.addSeries(
-        LineSeries,
-        { color: LINE_PRIMARY, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, title: 'MACD' },
-        1,
-      )
-      macdLine.setData(overlays.macdLine.map(p => ({ time: toSec(p.time), value: p.value })))
-
-      const signalLine = chart.addSeries(
-        LineSeries,
-        { color: LINE_SECONDARY, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, title: 'Signal' },
-        1,
-      )
-      signalLine.setData(overlays.signalLine.map(p => ({ time: toSec(p.time), value: p.value })))
-
-      const panes = chart.panes()
-      if (panes[0]) panes[0].setHeight(300)
-      if (panes[1]) panes[1].setHeight(140)
     }
 
     // ── Pane 1: Score ───────────────────────────────────────────────────
@@ -405,7 +348,7 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
     }
   }, [candles, trades, overlays, compareTrades, setTooltipStable])
 
-  const hasIndicatorPane = overlays.strategy === 'rsi' || overlays.strategy === 'macd' || overlays.strategy === 'score'
+  const hasIndicatorPane = overlays.strategy === 'rsi' || overlays.strategy === 'score'
 
   return (
     <div className="relative w-full" style={{ height: hasIndicatorPane ? 460 : 340 }}>

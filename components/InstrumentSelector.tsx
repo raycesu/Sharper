@@ -3,6 +3,22 @@
 import { useState, useEffect, useRef } from 'react'
 import type { Product } from '@/lib/types'
 
+type ProductsPayload = {
+  products?: Product[]
+  warning?: string | null
+}
+
+const parseProductsResponse = (data: unknown): { products: Product[]; warning: string | null } => {
+  if (Array.isArray(data)) return { products: data, warning: null }
+  if (data && typeof data === 'object' && 'products' in data) {
+    const row = data as ProductsPayload
+    const products = Array.isArray(row.products) ? row.products : []
+    const warning = typeof row.warning === 'string' ? row.warning : null
+    return { products, warning }
+  }
+  return { products: [], warning: null }
+}
+
 type Props = {
   assetClass: 'crypto' | 'stock'
   value:      string
@@ -17,6 +33,7 @@ export default function InstrumentSelector({ assetClass, value, onChange, classN
   const [open, setOpen]           = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
+  const [serverWarning, setServerWarning] = useState<string | null>(null)
 
   const wrapperRef  = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -26,9 +43,14 @@ export default function InstrumentSelector({ assetClass, value, onChange, classN
     setLoadError(false)
     setBaseProducts([])
     setSearchResults([])
+    setServerWarning(null)
     fetch(`/api/products?assetClass=${assetClass}`)
       .then(r => r.json())
-      .then((data: Product[]) => setBaseProducts(Array.isArray(data) ? data : []))
+      .then((data: unknown) => {
+        const { products, warning } = parseProductsResponse(data)
+        setBaseProducts(products)
+        setServerWarning(warning)
+      })
       .catch(() => setLoadError(true))
   }, [assetClass])
 
@@ -50,7 +72,9 @@ export default function InstrumentSelector({ assetClass, value, onChange, classN
       try {
         const res  = await fetch(`/api/products?assetClass=stock&q=${encodeURIComponent(query.trim())}`)
         const data = await res.json()
-        setSearchResults(Array.isArray(data) ? data : [])
+        const { products, warning } = parseProductsResponse(data)
+        setSearchResults(products)
+        if (warning) setServerWarning(warning)
       } catch {
         setSearchResults([])
       } finally {
@@ -121,6 +145,11 @@ export default function InstrumentSelector({ assetClass, value, onChange, classN
 
   return (
     <div ref={wrapperRef} className="relative">
+      {serverWarning && assetClass === 'stock' && (
+        <p className="mb-1.5 text-[11px] text-amber-500/90" role="status">
+          {serverWarning}
+        </p>
+      )}
       <input
         value={query}
         onChange={e => { setQuery(e.target.value); setOpen(true) }}

@@ -1,3 +1,4 @@
+import { alignBenchmarkSeriesToAssetTimes } from './benchmark-align'
 import { rsi } from './indicators'
 import type { Candle, StrategyFn } from './types'
 
@@ -15,24 +16,21 @@ export type StrategyContext = {
 function createMarketRsiDivergenceStrategy(context: StrategyContext): StrategyFn {
   const assetRsiSeries = rsi(context.assetCandles, 14)
   const benchmarkRsiSeries = rsi(context.benchmarkCandles, 14)
-  const benchmarkRsiByTime = new Map<number, number>()
+  const alignedBenchmarkRsi = alignBenchmarkSeriesToAssetTimes(
+    context.assetCandles,
+    context.benchmarkCandles,
+    benchmarkRsiSeries,
+  )
 
   let hasCrossed60 = false
   let peakRSI = Number.NEGATIVE_INFINITY
   let weeksBelowPeak = 0
 
-  for (let i = 0; i < context.benchmarkCandles.length; i++) {
-    const value = benchmarkRsiSeries[i]
-    if (value == null) continue
-    benchmarkRsiByTime.set(context.benchmarkCandles[i].time, value)
-  }
-
   return (candles, index, position) => {
     if (index <= 0) return 'hold'
 
-    const currentCandle = candles[index]
     const assetRsi = assetRsiSeries[index]
-    const benchmarkRsi = benchmarkRsiByTime.get(currentCandle.time)
+    const benchmarkRsi = alignedBenchmarkRsi[index]
 
     if (assetRsi == null || benchmarkRsi == null) {
       return 'hold'

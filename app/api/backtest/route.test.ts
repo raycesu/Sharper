@@ -27,12 +27,12 @@ vi.mock('@/lib/strategies', () => ({
     {
       id: 'market-rsi-divergence',
       label: 'Operation Seven-Point Five',
-      create: () => 'hold',
+      create: () => () => 'hold' as const,
     },
     {
       id: 'volume-momentum-weekly',
       label: 'The Volume Masterpiece',
-      create: () => 'hold',
+      create: () => () => 'hold' as const,
     },
   ],
 }))
@@ -195,5 +195,30 @@ describe('backtest route strategy interval behavior', () => {
       expect.any(Number),
       expect.any(Number),
     )
+  })
+
+  it('returns 400 when initialCapital is not a finite number greater than 0', async () => {
+    const candles = makeCandles(70)
+    fetchCandlesWithMetaMock.mockResolvedValue({ candles, fetchedAt: Date.now() })
+    fetchCandlesMock.mockResolvedValue(candles)
+
+    for (const initialCapital of [0, -1, Number.NaN, 'x']) {
+      const req = new NextRequest('http://localhost/api/backtest', {
+        method: 'POST',
+        body: JSON.stringify({
+          assetClass: 'crypto',
+          productId: 'ETHUSDT',
+          interval: '1w',
+          startDate: '2023-01-01',
+          endDate: '2024-01-01',
+          strategyId: 'volume-momentum-weekly',
+          initialCapital,
+        }),
+      })
+      const res = await POST(req)
+      expect(res.status).toBe(400)
+      const json = await res.json()
+      expect(json.error).toMatch(/initialCapital/i)
+    }
   })
 })

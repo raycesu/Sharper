@@ -1,25 +1,5 @@
 import type { Candle } from './types'
 
-export function sma(candles: Candle[], period: number): (number | null)[] {
-  return candles.map((_, i) => {
-    if (i < period - 1) return null
-    const slice = candles.slice(i - period + 1, i + 1)
-    return slice.reduce((sum, c) => sum + c.close, 0) / period
-  })
-}
-
-export function ema(candles: Candle[], period: number): (number | null)[] {
-  const k = 2 / (period + 1)
-  const result: (number | null)[] = new Array(candles.length).fill(null)
-  if (candles.length < period) return result
-  const seed = candles.slice(0, period).reduce((s, c) => s + c.close, 0) / period
-  result[period - 1] = seed
-  for (let i = period; i < candles.length; i++) {
-    result[i] = candles[i].close * k + (result[i - 1] as number) * (1 - k)
-  }
-  return result
-}
-
 export function rsi(candles: Candle[], period = 14): (number | null)[] {
   const result: (number | null)[] = new Array(candles.length).fill(null)
   if (candles.length < period + 1) return result
@@ -48,49 +28,4 @@ export function rsi(candles: Candle[], period = 14): (number | null)[] {
     result[i] = calcRsi(avgGain, avgLoss)
   }
   return result
-}
-
-export function macd(
-  candles: Candle[],
-  fastPeriod = 12,
-  slowPeriod = 26,
-  signalPeriod = 9,
-) {
-  const fastEma = ema(candles, fastPeriod)
-  const slowEma = ema(candles, slowPeriod)
-
-  const macdLine = candles.map((_, i) => {
-    if (fastEma[i] == null || slowEma[i] == null) return null
-    return (fastEma[i] as number) - (slowEma[i] as number)
-  })
-
-  // EMA of the MACD line as the signal line
-  const macdAsCandles: Candle[] = candles.map((c, i) => ({
-    ...c,
-    close: macdLine[i] ?? 0,
-  }))
-  const signalLine = ema(macdAsCandles, signalPeriod)
-
-  const histogram = macdLine.map((m, i) => {
-    if (m == null || signalLine[i] == null) return null
-    return m - (signalLine[i] as number)
-  })
-
-  return { macdLine, signalLine, histogram }
-}
-
-export function bollingerBands(candles: Candle[], period = 20, stdDevMult = 2) {
-  const middle = sma(candles, period)
-  return candles.map((_, i) => {
-    if (middle[i] == null) return null
-    const slice = candles.slice(i - period + 1, i + 1).map(c => c.close)
-    const mean = middle[i] as number
-    const variance = slice.reduce((s, v) => s + (v - mean) ** 2, 0) / period
-    const sd = Math.sqrt(variance)
-    return {
-      upper:  mean + stdDevMult * sd,
-      middle: mean,
-      lower:  mean - stdDevMult * sd,
-    }
-  })
 }

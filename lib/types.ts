@@ -60,6 +60,7 @@ export type BacktestResult = {
 
 export type StrategySignal = 'buy' | 'sell' | 'hold'
 
+/** `candles` is only bars through `index` (no future OHLC); `index` is the current bar in the full run. */
 export type StrategyFn = (
   candles: Candle[],
   index: number,
@@ -91,17 +92,6 @@ export type OverlayData =
       rsi: TimeValue[]
       oversold: number
       overbought: number
-    }
-  | {
-      strategy: 'golden-cross'
-      fastEma: TimeValue[]
-      slowEma: TimeValue[]
-    }
-  | {
-      strategy: 'macd'
-      macdLine: TimeValue[]
-      signalLine: TimeValue[]
-      histogram: TimeValue[]
     }
   | {
       strategy: 'score'

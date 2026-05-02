@@ -16,22 +16,6 @@ export function mean(values: number[]): number {
   return values.reduce((acc, value) => acc + value, 0) / values.length
 }
 
-export function stddev(values: number[]): number {
-  if (values.length === 0) return 0
-  const avg = mean(values)
-  const variance = values.reduce((acc, value) => acc + (value - avg) ** 2, 0) / values.length
-  return Math.sqrt(variance)
-}
-
-export function trimmedStats(values: number[], trimPct = 0.05): { mean: number; std: number } {
-  if (values.length === 0) return { mean: 0, std: 0 }
-
-  const sorted = [...values].sort((a, b) => a - b)
-  const cutoff = Math.max(1, Math.floor(sorted.length * (1 - trimPct)))
-  const trimmed = sorted.slice(0, cutoff)
-  return { mean: mean(trimmed), std: stddev(trimmed) }
-}
-
 export function computeRSI14(closes: number[]): Array<number | null> {
   const rsi: Array<number | null> = new Array(closes.length).fill(null)
   if (closes.length < 15) return rsi
@@ -69,14 +53,26 @@ const getRSIGate = (rsi: number | null): number => {
   return 0.5
 }
 
+/** Min/max of closes[t-9..t] inclusive (10 bars); O(10) per call, no allocations. */
+const minMaxCloseWindow10 = (closes: number[], t: number): { min: number; max: number } => {
+  const start = t - 9
+  let minv = closes[start]
+  let maxv = closes[start]
+  for (let k = start + 1; k <= t; k++) {
+    const v = closes[k]
+    if (v < minv) minv = v
+    if (v > maxv) maxv = v
+  }
+  return { min: minv, max: maxv }
+}
+
 export function scoreCandleArray(candles: Candle[]): ScoredCandle[] {
   const closes = candles.map(candle => candle.close)
   const rsiValues = computeRSI14(closes)
 
   return candles.map((candle, t) => {
     const rsiNow = rsiValues[t]
-    const low10w =
-      t >= 9 ? Math.min(...closes.slice(t - 9, t + 1)) : undefined
+    const low10w = t >= 9 ? minMaxCloseWindow10(closes, t).min : undefined
 
     if (t < 15) {
       const base: ScoredCandle = {
@@ -93,8 +89,7 @@ export function scoreCandleArray(candles: Candle[]): ScoredCandle[] {
     const volPrior = mean([candles[t - 3].volume, candles[t - 4].volume, candles[t - 5].volume])
     const V_trend = volPrior === 0 ? 0 : clamp(((volRecent - volPrior) / volPrior) * -3, -1, 1)
 
-    const low_10w = Math.min(...closes.slice(t - 9, t + 1))
-    const high_10w = Math.max(...closes.slice(t - 9, t + 1))
+    const { min: low_10w, max: high_10w } = minMaxCloseWindow10(closes, t)
     const range = high_10w - low_10w
     const P_context =
       range === 0 ? 0 : clamp(1 - ((candle.close - low_10w) / range) * 2, -1, 1)

@@ -115,4 +115,26 @@ describe('market-rsi-divergence strategy', () => {
     expect(strategy(candles, 30, { inPosition: true, entryPrice: 100 })).toBe('sell')
     expect(strategy(candles, 35, { inPosition: false, entryPrice: 0 })).toBe('buy')
   })
+
+  it('uses backward as-of benchmark RSI when benchmark bar times lag asset bars', () => {
+    const week = 604800000
+    const offset = 86400000
+    const len = 40
+    const assetCandles = makeCandles(len).map((c, i) => ({ ...c, time: i * week }))
+    const benchmarkCandles = makeCandles(len).map((c, i) => ({ ...c, time: i * week + offset }))
+
+    const assetRsi = Array.from({ length: len }, (_, i) => (i < 14 ? null : 30))
+    const benchmarkRsi = Array.from({ length: len }, (_, i) => (i < 14 ? null : 45))
+
+    rsiMock.mockImplementationOnce(() => assetRsi)
+    rsiMock.mockImplementationOnce(() => benchmarkRsi)
+
+    const strategy = getStrategy().create({
+      assetCandles,
+      benchmarkCandles,
+    })
+
+    // Asset bar 20 aligns to benchmark bar 19 (still on or before); both RSI slots are defined.
+    expect(strategy(assetCandles, 20, { inPosition: false, entryPrice: 0 })).toBe('buy')
+  })
 })

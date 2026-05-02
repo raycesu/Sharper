@@ -47,7 +47,7 @@ type ExchangeInfoResponse = {
   symbols?: BinanceExchangeSymbol[]
 }
 
-type Kline = [
+export type BinanceKlineRow = [
   number,
   string,
   string,
@@ -61,6 +61,17 @@ type Kline = [
   string,
   string,
 ]
+
+/** Parse one Binance kline row (spot /api/v3/klines). Exported for tests. */
+export const mapBinanceKlineRowToCandle = (kline: BinanceKlineRow): Candle => ({
+  time: kline[0],
+  open: parseFloat(kline[1]),
+  high: parseFloat(kline[2]),
+  low: parseFloat(kline[3]),
+  close: parseFloat(kline[4]),
+  volume: parseFloat(kline[5]),
+  quoteVolume: parseFloat(kline[7]),
+})
 
 const venueExchangeInfoCache = new Map<string, BinanceExchangeSymbol[]>()
 
@@ -229,21 +240,13 @@ async function fetchKlineChunk(
     throw new Error(`Binance klines API error ${res.status} (${venue}): ${text}`)
   }
 
-  const data = (await res.json()) as Kline[]
-  const now = Date.now()
+  const data = (await res.json()) as BinanceKlineRow[]
+  const asOfMs = Math.min(Date.now(), endTime)
   const completedData = interval === '1w'
-    ? data.filter(candle => candle[6] <= now)
+    ? data.filter(kline => kline[6] <= asOfMs)
     : data
 
-  return completedData.map(candle => ({
-    time: candle[0],
-    open: parseFloat(candle[1]),
-    high: parseFloat(candle[2]),
-    low: parseFloat(candle[3]),
-    close: parseFloat(candle[4]),
-    volume: parseFloat(candle[7]),
-    quoteVolume: parseFloat(candle[7]),
-  }))
+  return completedData.map(mapBinanceKlineRowToCandle)
 }
 
 async function fetchCandlesFromVenue(
