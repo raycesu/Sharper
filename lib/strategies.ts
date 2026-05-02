@@ -83,7 +83,12 @@ function createMarketRsiDivergenceStrategy(context: StrategyContext): StrategyFn
 export const STRATEGY_REGISTRY: StrategyDefinition[] = [
   {
     id: 'market-rsi-divergence',
-    label: 'Market RSI Divergence',
+    label: 'Operation Seven-Point Five',
     create: createMarketRsiDivergenceStrategy,
+  },
+  {
+    id: 'volume-momentum-weekly',
+    label: 'The Volume Masterpiece',
+    create: () => () => 'hold',
   },
 ]

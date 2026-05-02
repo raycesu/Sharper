@@ -6,6 +6,14 @@ import {
   searchTwelveDataStocks,
 } from './twelvedata'
 
+type CacheEntry = {
+  candles: Candle[]
+  fetchedAt: number
+}
+
+const WEEKLY_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const candleCache: Record<string, CacheEntry> = {}
+
 export async function fetchProducts(assetClass: 'crypto' | 'stock'): Promise<Product[]> {
   if (assetClass === 'stock') return fetchStockProducts()
   return fetchCryptoProducts()
@@ -24,10 +32,55 @@ export async function fetchCandles(
   startMs:    number,
   endMs:      number,
 ): Promise<Candle[]> {
-  if (assetClass === 'stock') {
-    return fetchTwelveDataCandles(symbol, interval, startMs, endMs)
+  const isWeekly = interval === '1w'
+  const cacheKey = `${symbol.toUpperCase()}_1W`
+  if (isWeekly) {
+    const cached = candleCache[cacheKey]
+    if (cached && Date.now() - cached.fetchedAt < WEEKLY_CACHE_TTL_MS) {
+      return cached.candles
+    }
   }
-  return fetchCryptoCandles(symbol, interval, startMs, endMs)
+
+  let candles: Candle[]
+  if (assetClass === 'stock') {
+    candles = await fetchTwelveDataCandles(symbol, interval, startMs, endMs)
+  } else {
+    candles = await fetchCryptoCandles(symbol, interval, startMs, endMs)
+  }
+
+  if (isWeekly) {
+    candleCache[cacheKey] = {
+      candles,
+      fetchedAt: Date.now(),
+    }
+  }
+
+  return candles
+}
+
+export async function fetchCandlesWithMeta(
+  assetClass: 'crypto' | 'stock',
+  symbol: string,
+  interval: string,
+  startMs: number,
+  endMs: number,
+): Promise<{ candles: Candle[]; fetchedAt: number | null }> {
+  const isWeekly = interval === '1w'
+  const cacheKey = `${symbol.toUpperCase()}_1W`
+  const cached = isWeekly ? candleCache[cacheKey] : undefined
+
+  const candles = await fetchCandles(assetClass, symbol, interval, startMs, endMs)
+  const latest = isWeekly ? candleCache[cacheKey] : undefined
+
+  if (latest && latest.candles === candles) {
+    return { candles, fetchedAt: latest.fetchedAt }
+  }
+
+  if (cached && cached.candles === candles) {
+    return { candles, fetchedAt: cached.fetchedAt }
+  }
+
+  return { candles, fetchedAt: null }
 }
 
 export const CRYPTO_INTERVALS = ['1h', '4h', '1d', '1w']

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import {
   LineChart,
@@ -15,12 +15,12 @@ import {
 } from 'recharts'
 import InstrumentSelector from '@/components/InstrumentSelector'
 import type { BacktestApiResponse, BacktestStats, RunResult } from '@/lib/types'
-import { INTERVAL_LABELS } from '@/lib/market-data'
+import { CRYPTO_INTERVALS, INTERVAL_LABELS, STOCK_INTERVALS } from '@/lib/market-data'
 import { STRATEGY_REGISTRY } from '@/lib/strategies'
 
 const PriceChart = dynamic(() => import('@/components/PriceChart'), { ssr: false })
 const WEEKLY_INTERVAL = '1w'
-
+const WEEKLY_ONLY_STRATEGY_IDS = new Set(['market-rsi-divergence', 'volume-momentum-weekly'])
 const ASSET_CLASSES = [
   { label: 'Crypto', value: 'crypto' as const },
   { label: 'Stocks', value: 'stock'  as const },
@@ -300,6 +300,8 @@ export default function BacktestPage() {
   const [startDate, setStartDate]   = useState('2023-01-01')
   const [endDate, setEndDate]       = useState('2024-01-01')
   const [capital, setCapital]       = useState(10000)
+  const [strategyId, setStrategyId] = useState('volume-momentum-weekly')
+  const [interval, setInterval] = useState('1w')
 
   const [loading, setLoading] = useState(false)
   const [result,  setResult]  = useState<BacktestApiResponse | null>(null)
@@ -311,6 +313,14 @@ export default function BacktestPage() {
     setProductId(cls === 'stock' ? 'AAPL' : 'BTCUSDT')
     setResult(null)
   }
+
+  const isWeeklyOnlyStrategy = WEEKLY_ONLY_STRATEGY_IDS.has(strategyId)
+
+  useEffect(() => {
+    if (!isWeeklyOnlyStrategy) return
+    if (interval === WEEKLY_INTERVAL) return
+    setInterval(WEEKLY_INTERVAL)
+  }, [interval, isWeeklyOnlyStrategy])
 
   const formatBacktestError = (message: string) => {
     if (message.includes('No Binance spot symbol found')) {
@@ -335,11 +345,11 @@ export default function BacktestPage() {
       const body: Record<string, unknown> = {
         assetClass,
         productId,
-        interval: WEEKLY_INTERVAL,
+        interval,
         startDate,
         endDate,
         initialCapital: capital,
-        strategyId: 'market-rsi-divergence',
+        strategyId,
       }
 
       const res  = await fetch('/api/backtest', {
@@ -364,7 +374,11 @@ export default function BacktestPage() {
 
   const primaryRun  = result?.runs[0] ?? null
 
-  const overlayLabel = 'RSI 14 · Oversold 40 · Overbought 60'
+  const overlayLabel = primaryRun?.overlays.strategy === 'score'
+    ? 'Score Overlay · Strong 1.5 · Entry 1.0 · Exit 0.5'
+    : 'RSI 14 · Oversold 40 · Overbought 60'
+  const intervalOptions = assetClass === 'stock' ? STOCK_INTERVALS : CRYPTO_INTERVALS
+  const displayedIntervalOptions = isWeeklyOnlyStrategy ? [WEEKLY_INTERVAL] : intervalOptions
 
   return (
     <div className="min-h-screen bg-[#0D0D0F] text-foreground px-6 py-8 max-w-7xl mx-auto">
@@ -418,13 +432,39 @@ export default function BacktestPage() {
         </div>
         <div>
           <label className={FIELD_LABEL}>Interval</label>
-          <input
-            value={INTERVAL_LABELS[WEEKLY_INTERVAL] ?? WEEKLY_INTERVAL}
+          <select
+            value={interval}
+            onChange={e => setInterval(e.target.value)}
             className={inputCls}
-            aria-label="Strategy interval locked to weekly"
-            readOnly
-            disabled
-          />
+            aria-label="Backtest interval"
+            disabled={isWeeklyOnlyStrategy}
+          >
+            {displayedIntervalOptions.map(value => (
+              <option key={value} value={value}>
+                {INTERVAL_LABELS[value] ?? value}
+              </option>
+            ))}
+          </select>
+          {isWeeklyOnlyStrategy && (
+            <p className="mt-1.5 text-[11px] text-[#555568]">
+              This strategy only supports weekly candles
+            </p>
+          )}
+        </div>
+        <div>
+          <label className={FIELD_LABEL}>Strategy</label>
+          <select
+            value={strategyId}
+            onChange={e => setStrategyId(e.target.value)}
+            className={inputCls}
+            aria-label="Backtest strategy"
+          >
+            {STRATEGY_REGISTRY.map(strategy => (
+              <option key={strategy.id} value={strategy.id}>
+                {strategy.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
           <label className={FIELD_LABEL}>Start date</label>
@@ -486,7 +526,10 @@ export default function BacktestPage() {
               <span className="text-[11px] font-normal uppercase tracking-[0.05em] text-[#555568]">
                 Price chart · {productId}
               </span>
-              <span className="text-[11px] text-[#555568]">{overlayLabel}</span>
+              <span className="text-[11px] text-[#555568]">
+                {overlayLabel}
+                {result.dataAsOf ? ` · Data as of ${new Date(result.dataAsOf).toLocaleString()}` : ''}
+              </span>
             </div>
             <PriceChart
               candles={result.candles}
@@ -524,45 +567,81 @@ export default function BacktestPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-[11px] font-normal uppercase tracking-[0.05em] text-[#555568]">
-                      <th className="text-left pb-3">Date</th>
-                      <th className="text-left pb-3">Type</th>
-                      <th className="text-right pb-3">Price</th>
-                      <th className="text-right pb-3">Qty</th>
-                      <th className="text-right pb-3">Value</th>
-                      <th className="text-right pb-3">P&L</th>
-                      <th className="text-right pb-3">P&L %</th>
+                      {run.overlays.strategy === 'score' ? (
+                        <>
+                          <th className="text-left pb-3">Entry date</th>
+                          <th className="text-left pb-3">Exit date</th>
+                          <th className="text-right pb-3">Entry price</th>
+                          <th className="text-right pb-3">Exit price</th>
+                          <th className="text-right pb-3">Entry score</th>
+                          <th className="text-right pb-3">Size %</th>
+                          <th className="text-right pb-3">P&L %</th>
+                          <th className="text-right pb-3">Exit reason</th>
+                        </>
+                      ) : (
+                        <>
+                          <th className="text-left pb-3">Date</th>
+                          <th className="text-left pb-3">Type</th>
+                          <th className="text-right pb-3">Price</th>
+                          <th className="text-right pb-3">Qty</th>
+                          <th className="text-right pb-3">Value</th>
+                          <th className="text-right pb-3">P&L</th>
+                          <th className="text-right pb-3">P&L %</th>
+                        </>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
-                    {run.trades.map((t, i) => (
-                      <tr key={i} className="border-t border-[#1E1E2A]">
-                        <td className="py-2.5 text-[#555568]">
-                          {new Date(t.time).toLocaleDateString()}
-                        </td>
-                        <td className="py-2.5">
-                          <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
-                            t.type === 'buy'
-                              ? 'bg-[#4ADE80]/15 text-[#4ADE80]'
-                              : 'bg-[#F87171]/15 text-[#F87171]'
+                    {run.overlays.strategy === 'score'
+                      ? run.trades
+                        .map((trade, index) => ({ trade, index }))
+                        .filter(({ trade }) => trade.type === 'sell')
+                        .map(({ trade, index }) => {
+                          const buy = run.trades.slice(0, index).reverse().find(t => t.type === 'buy')
+                          return (
+                            <tr key={`${trade.time}-${index}`} className="border-t border-[#1E1E2A]">
+                              <td className="py-2.5 text-[#555568]">{buy ? new Date(buy.time).toLocaleDateString() : '—'}</td>
+                              <td className="py-2.5 text-[#555568]">{new Date(trade.time).toLocaleDateString()}</td>
+                              <td className="py-2.5 text-right text-[#F0F0F8]">{buy ? `$${fmt(buy.price)}` : '—'}</td>
+                              <td className="py-2.5 text-right text-[#F0F0F8]">${fmt(trade.price)}</td>
+                              <td className="py-2.5 text-right text-[#F0F0F8]">{trade.entryScore != null ? trade.entryScore.toFixed(2) : '—'}</td>
+                              <td className="py-2.5 text-right text-[#F0F0F8]">{trade.sizePct != null ? `${trade.sizePct.toFixed(0)}%` : '—'}</td>
+                              <td className={`py-2.5 text-right ${trade.pnlPct != null && trade.pnlPct >= 0 ? 'text-[#4ADE80]' : 'text-[#F87171]'}`}>
+                                {trade.pnlPct != null ? fmtPct(trade.pnlPct) : '—'}
+                              </td>
+                              <td className="py-2.5 text-right text-[#555568]">{trade.exitReason ?? '—'}</td>
+                            </tr>
+                          )
+                        })
+                      : run.trades.map((t, i) => (
+                        <tr key={i} className="border-t border-[#1E1E2A]">
+                          <td className="py-2.5 text-[#555568]">
+                            {new Date(t.time).toLocaleDateString()}
+                          </td>
+                          <td className="py-2.5">
+                            <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                              t.type === 'buy'
+                                ? 'bg-[#4ADE80]/15 text-[#4ADE80]'
+                                : 'bg-[#F87171]/15 text-[#F87171]'
+                            }`}>
+                              {t.type.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="py-2.5 text-right text-[#F0F0F8]">${fmt(t.price)}</td>
+                          <td className="py-2.5 text-right text-[#555568]">{t.quantity.toFixed(6)}</td>
+                          <td className="py-2.5 text-right text-[#F0F0F8]">${fmt(t.value)}</td>
+                          <td className={`py-2.5 text-right ${
+                            t.pnl == null ? 'text-[#555568]' : t.pnl >= 0 ? 'text-[#4ADE80]' : 'text-[#F87171]'
                           }`}>
-                            {t.type.toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="py-2.5 text-right text-[#F0F0F8]">${fmt(t.price)}</td>
-                        <td className="py-2.5 text-right text-[#555568]">{t.quantity.toFixed(6)}</td>
-                        <td className="py-2.5 text-right text-[#F0F0F8]">${fmt(t.value)}</td>
-                        <td className={`py-2.5 text-right ${
-                          t.pnl == null ? 'text-[#555568]' : t.pnl >= 0 ? 'text-[#4ADE80]' : 'text-[#F87171]'
-                        }`}>
-                          {t.pnl != null ? `${t.pnl >= 0 ? '+' : ''}$${fmt(t.pnl)}` : '—'}
-                        </td>
-                        <td className={`py-2.5 text-right ${
-                          t.pnlPct == null ? 'text-[#555568]' : t.pnlPct >= 0 ? 'text-[#4ADE80]' : 'text-[#F87171]'
-                        }`}>
-                          {t.pnlPct != null ? fmtPct(t.pnlPct) : '—'}
-                        </td>
-                      </tr>
-                    ))}
+                            {t.pnl != null ? `${t.pnl >= 0 ? '+' : ''}$${fmt(t.pnl)}` : '—'}
+                          </td>
+                          <td className={`py-2.5 text-right ${
+                            t.pnlPct == null ? 'text-[#555568]' : t.pnlPct >= 0 ? 'text-[#4ADE80]' : 'text-[#F87171]'
+                          }`}>
+                            {t.pnlPct != null ? fmtPct(t.pnlPct) : '—'}
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </div>

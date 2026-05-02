@@ -30,6 +30,14 @@ export type Trade = {
   value: number
   pnl?: number
   pnlPct?: number
+  entryScore?: number
+  sizePct?: number
+  exitReason?:
+    | 'stopLoss'
+    | 'overbought'
+    | 'scoreFade'
+    | 'forcedClose'
+    | 'rsiRollover'
 }
 
 export type BacktestStats = {
@@ -73,6 +81,7 @@ export type BacktestApiResponse = {
   benchmarkCurve: TimeValue[]
   candles: Candle[]
   candleCount: number
+  dataAsOf?: number | null
 }
 
 // Chart overlay discriminated union
@@ -93,4 +102,12 @@ export type OverlayData =
       macdLine: TimeValue[]
       signalLine: TimeValue[]
       histogram: TimeValue[]
+    }
+  | {
+      strategy: 'score'
+      score: Array<TimeValue & { spikeDetected?: boolean }>
+      scoreStrong: number
+      scoreEntry: number
+      scoreExit: number
+      zero: number
     }

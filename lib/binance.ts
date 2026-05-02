@@ -230,14 +230,18 @@ async function fetchKlineChunk(
   }
 
   const data = (await res.json()) as Kline[]
+  const now = Date.now()
+  const completedData = interval === '1w'
+    ? data.filter(candle => candle[6] <= now)
+    : data
 
-  return data.map(candle => ({
+  return completedData.map(candle => ({
     time: candle[0],
     open: parseFloat(candle[1]),
     high: parseFloat(candle[2]),
     low: parseFloat(candle[3]),
     close: parseFloat(candle[4]),
-    volume: parseFloat(candle[5]),
+    volume: parseFloat(candle[7]),
     quoteVolume: parseFloat(candle[7]),
   }))
 }

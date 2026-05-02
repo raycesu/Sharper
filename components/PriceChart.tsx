@@ -177,7 +177,9 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
       const markers: SeriesMarker<Time>[] = sorted.map(t => ({
         time:     toSec(t.time),
         position: (t.type === 'buy' ? 'belowBar' : 'aboveBar') as 'belowBar' | 'aboveBar',
-        color:    t.type === 'buy' ? '#4ADE80' : '#F87171',
+        color:    t.type === 'buy'
+          ? '#4ADE80'
+          : (t.pnl ?? 0) >= 0 ? '#4ADE80' : '#F87171',
         shape:    (t.type === 'buy' ? 'arrowUp' : 'arrowDown') as 'arrowUp' | 'arrowDown',
         text:     t.type === 'buy' ? 'B' : 'S',
         size:     1,
@@ -293,6 +295,63 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
       if (panes[1]) panes[1].setHeight(140)
     }
 
+    // ── Pane 1: Score ───────────────────────────────────────────────────
+    if (overlays.strategy === 'score' && overlays.score.length > 0) {
+      const scoreSeries = chart.addSeries(
+        LineSeries,
+        {
+          color: LINE_PRIMARY,
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          title: 'Score',
+          autoscaleInfoProvider: () => ({
+            priceRange: { minValue: -2, maxValue: 2 },
+            margins: { above: 0.12, below: 0.12 },
+          }),
+        },
+        1,
+      )
+
+      scoreSeries.setData(overlays.score.map(point => ({ time: toSec(point.time), value: point.value })))
+      scoreSeries.createPriceLine({
+        price: overlays.scoreStrong,
+        color: 'rgba(74, 222, 128, 0.45)',
+        lineStyle: LineStyle.Dashed,
+        lineWidth: 1,
+        axisLabelVisible: true,
+        title: String(overlays.scoreStrong),
+      })
+      scoreSeries.createPriceLine({
+        price: overlays.scoreEntry,
+        color: 'rgba(74, 222, 128, 0.35)',
+        lineStyle: LineStyle.Dashed,
+        lineWidth: 1,
+        axisLabelVisible: true,
+        title: String(overlays.scoreEntry),
+      })
+      scoreSeries.createPriceLine({
+        price: overlays.scoreExit,
+        color: 'rgba(251, 191, 36, 0.40)',
+        lineStyle: LineStyle.Dashed,
+        lineWidth: 1,
+        axisLabelVisible: true,
+        title: String(overlays.scoreExit),
+      })
+      scoreSeries.createPriceLine({
+        price: overlays.zero,
+        color: 'rgba(85, 85, 104, 0.45)',
+        lineStyle: LineStyle.Dashed,
+        lineWidth: 1,
+        axisLabelVisible: false,
+        title: '',
+      })
+
+      const panes = chart.panes()
+      if (panes[0]) panes[0].setHeight(300)
+      if (panes[1]) panes[1].setHeight(130)
+    }
+
     chart.timeScale().fitContent()
 
     // ── Interactive trade tooltip via crosshair subscription ───────────
@@ -346,7 +405,7 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
     }
   }, [candles, trades, overlays, compareTrades, setTooltipStable])
 
-  const hasIndicatorPane = overlays.strategy === 'rsi' || overlays.strategy === 'macd'
+  const hasIndicatorPane = overlays.strategy === 'rsi' || overlays.strategy === 'macd' || overlays.strategy === 'score'
 
   return (
     <div className="relative w-full" style={{ height: hasIndicatorPane ? 460 : 340 }}>
