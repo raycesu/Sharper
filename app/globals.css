@@ -1,17 +1,18 @@
 @import "tailwindcss";
 
 :root {
-  --background:       #0d0d0f;
-  --foreground:       #a0a0b0;
-  --heading:          #f0f0f8;
-  --surface:          #111116;
-  --surface-raised:   #16161e;
-  --border:           #1e1e2a;
-  --border-strong:    #2a2a3a;
+  --background:       #05060a;
+  --foreground:       #a9b0c2;
+  --heading:          #f4f6fb;
+  --surface:          #0d1018;
+  --surface-raised:   #151925;
+  --border:           #202637;
+  --border-strong:    #30384f;
   --brand-start:      #6b8eff;
   --brand-end:        #7c5cfc;
   --brand:            #6b8eff;
   --brand-b:          #7c5cfc;
+  --accent-mint:      #3fd6bc;
 }
 
 @theme inline {
@@ -26,6 +27,7 @@
   --color-brand-start:    var(--brand-start);
   --color-brand-end:      var(--brand-end);
   --color-brand-b:        var(--brand-b);
+  --color-accent-mint:    var(--accent-mint);
   --font-sans:            var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono:            var(--font-geist-mono), ui-monospace, monospace;
 }
@@ -58,7 +60,7 @@ h6 {
   border-radius: 8px;
   border: none;
   background: linear-gradient(135deg, var(--brand-start) 0%, var(--brand-end) 100%);
-  color: var(--heading);
+  color: #ffffff;
   font-weight: 600;
   transition: filter 0.15s ease, opacity 0.15s ease;
 }
