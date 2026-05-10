@@ -725,6 +725,7 @@ export default function BacktestPage() {
               candles={result.candles}
               trades={primaryRun.trades}
               overlays={primaryRun.overlays}
+              compareStrategies={hasCompare}
               compareTrades={hasCompare && secondaryRun ? secondaryRun.trades : undefined}
               primaryLabel={primaryRun.label}
               compareLabel={hasCompare && secondaryRun ? secondaryRun.label : undefined}

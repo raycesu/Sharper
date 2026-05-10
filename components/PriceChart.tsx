@@ -41,6 +41,8 @@ type Props = {
   candles:       CandlePoint[]
   trades:        Trade[]
   overlays:      OverlayData
+  /** When true, same run is comparing two strategies — hide RSI/score pane (single-strategy only). */
+  compareStrategies?: boolean
   compareTrades?: Trade[]   // second strategy markers (optional)
   primaryLabel?:  string
   compareLabel?:  string
@@ -85,6 +87,7 @@ export default function PriceChart({
   candles,
   trades,
   overlays,
+  compareStrategies = false,
   compareTrades,
   primaryLabel = 'Strategy 1',
   compareLabel = 'Strategy 2',
@@ -100,8 +103,6 @@ export default function PriceChart({
     tooltipRef.current = t
     setTooltip(t)
   }, [])
-
-  const compareMode = Boolean(compareTrades && compareTrades.length > 0)
 
   useEffect(() => {
     if (!containerRef.current || candles.length === 0) return
@@ -187,8 +188,8 @@ export default function PriceChart({
         position: (t.type === 'buy' ? 'belowBar' : 'aboveBar') as 'belowBar' | 'aboveBar',
         color:    t.type === 'buy' ? MARKER_PRIMARY_BUY : MARKER_PRIMARY_SELL,
         shape:    (t.type === 'buy' ? 'arrowUp' : 'arrowDown') as 'arrowUp' | 'arrowDown',
-        text:     compareMode ? (t.type === 'buy' ? 'B1' : 'S1') : (t.type === 'buy' ? 'B' : 'S'),
-        size:     compareMode ? 1.6 : 1.25,
+        text:     compareStrategies ? (t.type === 'buy' ? 'B1' : 'S1') : (t.type === 'buy' ? 'B' : 'S'),
+        size:     compareStrategies ? 1.6 : 1.25,
       }))
       createSeriesMarkers(candleSeries, markers)
     }
@@ -219,7 +220,7 @@ export default function PriceChart({
     }
 
     // ── Pane 1: RSI ─────────────────────────────────────────────────────
-    if (!compareMode && overlays.strategy === 'rsi' && overlays.rsi.length > 0) {
+    if (!compareStrategies && overlays.strategy === 'rsi' && overlays.rsi.length > 0) {
       const rsiSeries = chart.addSeries(
         LineSeries,
         {
@@ -243,7 +244,7 @@ export default function PriceChart({
     }
 
     // ── Pane 1: Score ───────────────────────────────────────────────────
-    if (!compareMode && overlays.strategy === 'score' && overlays.score.length > 0) {
+    if (!compareStrategies && overlays.strategy === 'score' && overlays.score.length > 0) {
       const scoreSeries = chart.addSeries(
         LineSeries,
         {
@@ -334,12 +335,16 @@ export default function PriceChart({
       chartRef.current  = null
       candleRef.current = null
     }
-  }, [candles, trades, overlays, compareTrades, primaryLabel, compareLabel, compareMode, setTooltipStable])
+  }, [candles, trades, overlays, compareTrades, primaryLabel, compareLabel, compareStrategies, setTooltipStable])
 
-  const hasIndicatorPane = !compareMode && (overlays.strategy === 'rsi' || overlays.strategy === 'score')
+  const hasIndicatorPane =
+    !compareStrategies && (overlays.strategy === 'rsi' || overlays.strategy === 'score')
 
   return (
-    <div className="relative w-full" style={{ height: compareMode ? 430 : hasIndicatorPane ? 460 : 340 }}>
+    <div
+      className="relative w-full"
+      style={{ height: compareStrategies ? 430 : hasIndicatorPane ? 460 : 340 }}
+    >
       <div ref={containerRef} className="w-full h-full" />
 
       {/* Trade tooltip */}
@@ -404,7 +409,7 @@ export default function PriceChart({
       )}
 
       {/* Marker legend when comparison is active */}
-      {compareTrades && compareTrades.length > 0 && (
+      {compareStrategies && (
         <div className="pointer-events-none absolute bottom-2 left-2 flex max-w-[calc(100%-1rem)] flex-wrap gap-x-4 gap-y-1 rounded-[8px] border border-[#1E1E2A] bg-[#111116]/90 px-2.5 py-1.5 text-[11px] text-[#8F99AF]">
           <span><span className="font-semibold text-[#4ADE80]">B1</span> <span className="font-semibold text-[#F87171]">S1</span> {primaryLabel}</span>
           <span><span className="font-semibold text-[#86EFAC]">B2</span> <span className="font-semibold text-[#FCA5A5]">S2</span> {compareLabel}</span>
