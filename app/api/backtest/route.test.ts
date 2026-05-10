@@ -197,6 +197,63 @@ describe('backtest route strategy interval behavior', () => {
     )
   })
 
+  it('adds asset RSI at entry to market-rsi-divergence trades', async () => {
+    const candles = makeCandles(40)
+    fetchCandlesWithMetaMock.mockResolvedValue({ candles, fetchedAt: Date.now() })
+    fetchCandlesMock.mockResolvedValue(candles)
+    rsiMock.mockReturnValue(candles.map((_, index) => (index === 14 ? 37.25 : 50)))
+    runBacktestMock.mockReturnValue({
+      trades: [
+        {
+          type: 'buy',
+          price: candles[14].close,
+          quantity: 1,
+          time: candles[14].time,
+          value: 1000,
+        },
+        {
+          type: 'sell',
+          price: candles[20].close,
+          quantity: 1,
+          time: candles[20].time,
+          value: 1200,
+          pnl: 200,
+          pnlPct: 20,
+        },
+      ],
+      equityCurve: candles.map(c => ({ time: c.time, value: 10000 })),
+      stats: {
+        totalReturn: 2,
+        totalReturnAbs: 200,
+        winRate: 100,
+        totalTrades: 1,
+        maxDrawdown: 0,
+        sharpeRatio: 1,
+        sortinoRatio: 1,
+        bestTrade: 20,
+        worstTrade: 20,
+      },
+    })
+
+    const req = new NextRequest('http://localhost/api/backtest', {
+      method: 'POST',
+      body: JSON.stringify({
+        assetClass: 'crypto',
+        productId: 'ETHUSDT',
+        interval: '1w',
+        startDate: '2023-01-01',
+        endDate: '2024-01-01',
+        strategyId: 'market-rsi-divergence',
+      }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.runs[0].trades[0].entryScore).toBe(37.25)
+    expect(json.runs[0].trades[1].entryScore).toBe(37.25)
+  })
+
   it('returns 400 when initialCapital is not a finite number greater than 0', async () => {
     const candles = makeCandles(70)
     fetchCandlesWithMetaMock.mockResolvedValue({ candles, fetchedAt: Date.now() })

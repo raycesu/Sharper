@@ -25,10 +25,15 @@ type CandlePoint = {
   volume: number
 }
 
+type ChartTrade = Trade & {
+  strategyLabel: string
+  strategyIndex: 1 | 2
+}
+
 type TooltipState = {
   x: number
   y: number
-  trade: Trade
+  trade: ChartTrade
   flip: boolean   // true → render tooltip to the left of the marker
 } | null
 
@@ -37,6 +42,8 @@ type Props = {
   trades:        Trade[]
   overlays:      OverlayData
   compareTrades?: Trade[]   // second strategy markers (optional)
+  primaryLabel?:  string
+  compareLabel?:  string
 }
 
 const toSec = (ms: number): Time => Math.floor(ms / 1000) as Time
@@ -48,7 +55,10 @@ const CHART_BG = '#111116'
 const CHART_GRID = '#1E1E2A'
 const CHART_AXIS = '#555568'
 const LINE_PRIMARY = '#6B8EFF'
-const LINE_SECONDARY = '#7C5CFC'
+const MARKER_PRIMARY_BUY = '#4ADE80'
+const MARKER_PRIMARY_SELL = '#F87171'
+const MARKER_COMPARE_BUY = '#86EFAC'
+const MARKER_COMPARE_SELL = '#FCA5A5'
 
 const CHART_OPTS = {
   layout: {
@@ -71,7 +81,14 @@ const CHART_OPTS = {
   handleScale: true,
 }
 
-export default function PriceChart({ candles, trades, overlays, compareTrades }: Props) {
+export default function PriceChart({
+  candles,
+  trades,
+  overlays,
+  compareTrades,
+  primaryLabel = 'Strategy 1',
+  compareLabel = 'Strategy 2',
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef     = useRef<IChartApi | null>(null)
   const candleRef    = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -83,6 +100,8 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
     tooltipRef.current = t
     setTooltip(t)
   }, [])
+
+  const compareMode = Boolean(compareTrades && compareTrades.length > 0)
 
   useEffect(() => {
     if (!containerRef.current || candles.length === 0) return
@@ -140,12 +159,24 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
 
     // ── Build trade lookup maps for tooltip ────────────────────────────
     // Primary trades keyed by UTC seconds
-    const primaryMap = new Map<number, Trade>()
-    for (const t of trades) primaryMap.set(Math.floor(t.time / 1000), t)
+    const primaryMap = new Map<number, ChartTrade>()
+    for (const t of trades) {
+      primaryMap.set(Math.floor(t.time / 1000), {
+        ...t,
+        strategyLabel: primaryLabel,
+        strategyIndex: 1,
+      })
+    }
 
-    const compareMap = new Map<number, Trade>()
+    const compareMap = new Map<number, ChartTrade>()
     if (compareTrades) {
-      for (const t of compareTrades) compareMap.set(Math.floor(t.time / 1000), t)
+      for (const t of compareTrades) {
+        compareMap.set(Math.floor(t.time / 1000), {
+          ...t,
+          strategyLabel: compareLabel,
+          strategyIndex: 2,
+        })
+      }
     }
 
     // ── Primary strategy buy/sell markers ──────────────────────────────
@@ -154,12 +185,10 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
       const markers: SeriesMarker<Time>[] = sorted.map(t => ({
         time:     toSec(t.time),
         position: (t.type === 'buy' ? 'belowBar' : 'aboveBar') as 'belowBar' | 'aboveBar',
-        color:    t.type === 'buy'
-          ? '#4ADE80'
-          : (t.pnl ?? 0) >= 0 ? '#4ADE80' : '#F87171',
+        color:    t.type === 'buy' ? MARKER_PRIMARY_BUY : MARKER_PRIMARY_SELL,
         shape:    (t.type === 'buy' ? 'arrowUp' : 'arrowDown') as 'arrowUp' | 'arrowDown',
-        text:     t.type === 'buy' ? 'B' : 'S',
-        size:     1,
+        text:     compareMode ? (t.type === 'buy' ? 'B1' : 'S1') : (t.type === 'buy' ? 'B' : 'S'),
+        size:     compareMode ? 1.6 : 1.25,
       }))
       createSeriesMarkers(candleSeries, markers)
     }
@@ -181,16 +210,16 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
       const cmpMarkers: SeriesMarker<Time>[] = cmpSorted.map(t => ({
         time:     toSec(t.time),
         position: (t.type === 'buy' ? 'belowBar' : 'aboveBar') as 'belowBar' | 'aboveBar',
-        color:    t.type === 'buy' ? LINE_SECONDARY : LINE_PRIMARY,
+        color:    t.type === 'buy' ? MARKER_COMPARE_BUY : MARKER_COMPARE_SELL,
         shape:    (t.type === 'buy' ? 'arrowUp' : 'arrowDown') as 'arrowUp' | 'arrowDown',
         text:     t.type === 'buy' ? 'B2' : 'S2',
-        size:     1,
+        size:     1.6,
       }))
       createSeriesMarkers(ghostSeries, cmpMarkers)
     }
 
     // ── Pane 1: RSI ─────────────────────────────────────────────────────
-    if (overlays.strategy === 'rsi' && overlays.rsi.length > 0) {
+    if (!compareMode && overlays.strategy === 'rsi' && overlays.rsi.length > 0) {
       const rsiSeries = chart.addSeries(
         LineSeries,
         {
@@ -208,38 +237,13 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
       )
       rsiSeries.setData(overlays.rsi.map(p => ({ time: toSec(p.time), value: p.value })))
 
-      rsiSeries.createPriceLine({
-        price: overlays.oversold,
-        color: 'rgba(239, 83, 80, 0.45)',
-        lineStyle: LineStyle.Dashed,
-        lineWidth: 1,
-        axisLabelVisible: true,
-        title: String(overlays.oversold),
-      })
-      rsiSeries.createPriceLine({
-        price: overlays.overbought,
-        color: 'rgba(38, 166, 154, 0.45)',
-        lineStyle: LineStyle.Dashed,
-        lineWidth: 1,
-        axisLabelVisible: true,
-        title: String(overlays.overbought),
-      })
-      rsiSeries.createPriceLine({
-        price: 50,
-        color: 'rgba(85, 85, 104, 0.45)',
-        lineStyle: LineStyle.Dashed,
-        lineWidth: 1,
-        axisLabelVisible: false,
-        title: '',
-      })
-
       const panes = chart.panes()
       if (panes[0]) panes[0].setHeight(300)
       if (panes[1]) panes[1].setHeight(130)
     }
 
     // ── Pane 1: Score ───────────────────────────────────────────────────
-    if (overlays.strategy === 'score' && overlays.score.length > 0) {
+    if (!compareMode && overlays.strategy === 'score' && overlays.score.length > 0) {
       const scoreSeries = chart.addSeries(
         LineSeries,
         {
@@ -258,36 +262,20 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
 
       scoreSeries.setData(overlays.score.map(point => ({ time: toSec(point.time), value: point.value })))
       scoreSeries.createPriceLine({
-        price: overlays.scoreStrong,
-        color: 'rgba(74, 222, 128, 0.45)',
+        price: 2,
+        color: 'rgba(107, 142, 255, 0.45)',
         lineStyle: LineStyle.Dashed,
         lineWidth: 1,
         axisLabelVisible: true,
-        title: String(overlays.scoreStrong),
+        title: '2',
       })
       scoreSeries.createPriceLine({
-        price: overlays.scoreEntry,
-        color: 'rgba(74, 222, 128, 0.35)',
+        price: -2,
+        color: 'rgba(107, 142, 255, 0.45)',
         lineStyle: LineStyle.Dashed,
         lineWidth: 1,
         axisLabelVisible: true,
-        title: String(overlays.scoreEntry),
-      })
-      scoreSeries.createPriceLine({
-        price: overlays.scoreExit,
-        color: 'rgba(251, 191, 36, 0.40)',
-        lineStyle: LineStyle.Dashed,
-        lineWidth: 1,
-        axisLabelVisible: true,
-        title: String(overlays.scoreExit),
-      })
-      scoreSeries.createPriceLine({
-        price: overlays.zero,
-        color: 'rgba(85, 85, 104, 0.45)',
-        lineStyle: LineStyle.Dashed,
-        lineWidth: 1,
-        axisLabelVisible: false,
-        title: '',
+        title: '-2',
       })
 
       const panes = chart.panes()
@@ -346,12 +334,12 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
       chartRef.current  = null
       candleRef.current = null
     }
-  }, [candles, trades, overlays, compareTrades, setTooltipStable])
+  }, [candles, trades, overlays, compareTrades, primaryLabel, compareLabel, compareMode, setTooltipStable])
 
-  const hasIndicatorPane = overlays.strategy === 'rsi' || overlays.strategy === 'score'
+  const hasIndicatorPane = !compareMode && (overlays.strategy === 'rsi' || overlays.strategy === 'score')
 
   return (
-    <div className="relative w-full" style={{ height: hasIndicatorPane ? 460 : 340 }}>
+    <div className="relative w-full" style={{ height: compareMode ? 430 : hasIndicatorPane ? 460 : 340 }}>
       <div ref={containerRef} className="w-full h-full" />
 
       {/* Trade tooltip */}
@@ -359,17 +347,22 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
         <div
           style={{
             position:      'absolute',
-            left:          tooltip.flip ? tooltip.x - 175 : tooltip.x + 14,
+            left:          tooltip.flip ? tooltip.x - 220 : tooltip.x + 14,
             top:           Math.max(4, tooltip.y - 80),
             pointerEvents: 'none',
             zIndex:        20,
           }}
-          className="min-w-[155px] rounded-xl border border-[#1E1E2A] bg-[#111116] px-3 py-2.5 text-xs"
+          className="w-[206px] rounded-[8px] border border-[#1E1E2A] bg-[#111116] px-3 py-2.5 text-xs shadow-[0_18px_40px_rgba(0,0,0,0.36)]"
         >
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#7B8499]">
+            {tooltip.trade.strategyLabel}
+          </div>
           <div className={`mb-1.5 text-sm font-semibold ${
-            tooltip.trade.type === 'buy' ? 'text-[#4ADE80]' : 'text-[#F87171]'
+            tooltip.trade.type === 'buy'
+              ? tooltip.trade.strategyIndex === 2 ? 'text-[#86EFAC]' : 'text-[#4ADE80]'
+              : tooltip.trade.strategyIndex === 2 ? 'text-[#FCA5A5]' : 'text-[#F87171]'
           }`}>
-            {tooltip.trade.type === 'buy' ? '▲ BUY' : '▼ SELL'}
+            {tooltip.trade.type === 'buy' ? 'BUY' : 'SELL'}
           </div>
           <div className="flex justify-between gap-3 text-[#555568]">
             <span>Price</span>
@@ -412,9 +405,9 @@ export default function PriceChart({ candles, trades, overlays, compareTrades }:
 
       {/* Marker legend when comparison is active */}
       {compareTrades && compareTrades.length > 0 && (
-        <div className="pointer-events-none absolute bottom-2 left-2 flex gap-3 text-[11px] text-[#555568]">
-          <span><span className="text-[#4ADE80]">▲</span><span className="text-[#F87171]">▼</span> Strategy 1</span>
-          <span><span className="text-[#6B8EFF]">▲</span><span className="text-[#7C5CFC]">▼</span> Strategy 2</span>
+        <div className="pointer-events-none absolute bottom-2 left-2 flex max-w-[calc(100%-1rem)] flex-wrap gap-x-4 gap-y-1 rounded-[8px] border border-[#1E1E2A] bg-[#111116]/90 px-2.5 py-1.5 text-[11px] text-[#8F99AF]">
+          <span><span className="font-semibold text-[#4ADE80]">B1</span> <span className="font-semibold text-[#F87171]">S1</span> {primaryLabel}</span>
+          <span><span className="font-semibold text-[#86EFAC]">B2</span> <span className="font-semibold text-[#FCA5A5]">S2</span> {compareLabel}</span>
         </div>
       )}
     </div>

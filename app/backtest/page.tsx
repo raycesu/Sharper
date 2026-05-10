@@ -14,7 +14,7 @@ import {
   CartesianGrid,
 } from 'recharts'
 import InstrumentSelector from '@/components/InstrumentSelector'
-import type { BacktestApiResponse, BacktestStats, RunResult } from '@/lib/types'
+import type { BacktestApiResponse, BacktestStats, RunResult, Trade } from '@/lib/types'
 import { STRATEGY_REGISTRY } from '@/lib/strategies'
 
 const PriceChart = dynamic(() => import('@/components/PriceChart'), { ssr: false })
@@ -45,7 +45,25 @@ const METRIC_HINTS = {
     + '> 1 is good · > 2 is strong.',
 }
 
-function MetricHint({ text }: { text: string }) {
+type MetricHintProps = {
+  text: string
+  align?: 'left' | 'center' | 'right'
+}
+
+function MetricHint({ text, align = 'center' }: MetricHintProps) {
+  const tooltipPosition =
+    align === 'right'
+      ? 'top-full right-0 mt-2'
+      : align === 'left'
+        ? 'top-full left-0 mt-2'
+        : 'top-full left-1/2 -translate-x-1/2 mt-2'
+  const arrowPosition =
+    align === 'right'
+      ? 'bottom-full right-3 mb-[-1px]'
+      : align === 'left'
+        ? 'bottom-full left-3 mb-[-1px]'
+        : 'bottom-full left-1/2 -translate-x-1/2 mb-[-1px]'
+
   return (
     <span className="group/hint relative ml-1.5 inline-flex items-center cursor-help">
       <span className="flex h-4 w-4 items-center justify-center rounded-full border border-[#30394D] bg-[#151B28] text-[10px] leading-none text-[#7B8499] transition-colors group-hover/hint:border-[#6B8EFF]/55 group-hover/hint:text-[#9FB2FF]">
@@ -55,14 +73,14 @@ function MetricHint({ text }: { text: string }) {
         role="tooltip"
         className={[
           'pointer-events-none absolute z-50',
-          'top-full left-1/2 -translate-x-1/2 mt-2',
-          'w-64 px-3 py-2.5 rounded-[8px] text-[11px] leading-relaxed',
+          tooltipPosition,
+          'w-[min(16rem,calc(100vw-2rem))] px-3 py-2.5 rounded-[8px] text-[11px] leading-relaxed',
           'normal-case tracking-normal font-normal',
           'bg-[#151B28] border border-[#30394D] text-[#B7C0D4] shadow-[0_18px_40px_rgba(0,0,0,0.38)]',
           'opacity-0 group-hover/hint:opacity-100 transition-opacity duration-150',
         ].join(' ')}
       >
-        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-[-1px] border-[5px] border-transparent border-b-[#151B28]" />
+        <span className={`absolute ${arrowPosition} border-[5px] border-transparent border-b-[#151B28]`} />
         {text}
       </span>
     </span>
@@ -78,6 +96,7 @@ function fmt(n: number) {
 }
 
 function fmtPct(n: number) { return `${n >= 0 ? '+' : ''}${fmt(n)}%` }
+function tradeTone(n: number) { return n >= 0 ? 'text-[#4ADE80]' : 'text-[#F87171]' }
 
 type StatCardProps = {
   label:  string
@@ -85,9 +104,10 @@ type StatCardProps = {
   sub?:   string
   color?: string
   hint?:  string
+  hintAlign?: 'center' | 'right'
 }
 
-function StatCard({ label, value, sub, color, hint }: StatCardProps) {
+function StatCard({ label, value, sub, color, hint, hintAlign }: StatCardProps) {
   return (
     <div className={RESULT_CARD}>
       <div
@@ -97,7 +117,7 @@ function StatCard({ label, value, sub, color, hint }: StatCardProps) {
       <div className="relative">
         <div className="mb-2 flex items-center text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7B8499]">
           <span>{label}</span>
-          {hint && <MetricHint text={hint} />}
+          {hint && <MetricHint text={hint} align={hintAlign} />}
         </div>
         <div className={`text-[26px] font-semibold leading-tight tracking-tight ${color ?? 'text-[#F4F7FC]'}`}>
           {value}
@@ -120,9 +140,9 @@ function StatsGrid({ stats, initialCapital }: { stats: BacktestStats; initialCap
       <StatCard label="Win rate"     value={`${fmt(stats.winRate)}%`}             sub={`${stats.totalTrades} trades`} />
       <StatCard label="Max drawdown" value={`${fmt(stats.maxDrawdown)}%`}         color="text-[#FB7185]" />
       <StatCard label="Sharpe ratio"  value={fmt(stats.sharpeRatio)}  sub="annualised" hint={METRIC_HINTS.sharpe} />
-      <StatCard label="Sortino ratio" value={fmt(stats.sortinoRatio)} sub="annualised" hint={METRIC_HINTS.sortino} />
-      <StatCard label="Best trade"   value={fmtPct(stats.bestTrade)}              color="text-[#4ADE80]" />
-      <StatCard label="Worst trade"  value={fmtPct(stats.worstTrade)}             color="text-[#FB7185]" />
+      <StatCard label="Sortino ratio" value={fmt(stats.sortinoRatio)} sub="annualised" hint={METRIC_HINTS.sortino} hintAlign="right" />
+      <StatCard label="Best trade"   value={fmtPct(stats.bestTrade)}              color={tradeTone(stats.bestTrade)} />
+      <StatCard label="Worst trade"  value={fmtPct(stats.worstTrade)}             color={tradeTone(stats.worstTrade)} />
       <StatCard
         label="Starting capital"
         value={`$${fmt(initialCapital)}`}
@@ -130,6 +150,43 @@ function StatsGrid({ stats, initialCapital }: { stats: BacktestStats; initialCap
       />
     </div>
   )
+}
+
+type CompletedTradeRow = {
+  key: string
+  entryTime?: number
+  exitTime: number
+  entryPrice?: number
+  exitPrice: number
+  endingValue: number
+  pnlPct?: number
+  entryScore?: number
+}
+
+function getCompletedTradeRows(trades: Trade[]): CompletedTradeRow[] {
+  const rows: CompletedTradeRow[] = []
+  let activeBuy: Trade | null = null
+
+  trades.forEach((trade, index) => {
+    if (trade.type === 'buy') {
+      activeBuy = trade
+      return
+    }
+
+    rows.push({
+      key: `${trade.time}-${index}`,
+      entryTime: activeBuy?.time,
+      exitTime: trade.time,
+      entryPrice: activeBuy?.price,
+      exitPrice: trade.price,
+      endingValue: trade.value,
+      pnlPct: trade.pnlPct,
+      entryScore: trade.entryScore ?? activeBuy?.entryScore,
+    })
+    activeBuy = null
+  })
+
+  return rows
 }
 
 type CompareStatsProps = {
@@ -145,9 +202,46 @@ function CompareStats({ runs, initialCapital }: CompareStatsProps) {
     label:   string
     aVal:    string
     bVal:    string
+    aNum:    number
+    bNum:    number
+    delta:   'percent' | 'currency' | 'count' | 'ratio'
     aColor?: string
     bColor?: string
     hint?:   string
+    lowerIsBetter?: boolean
+  }
+
+  const fmtDelta = (row: StatRow, value: number) => {
+    if (row.delta === 'currency') return `$${fmt(value)}`
+    if (row.delta === 'count') return new Intl.NumberFormat('en-US').format(value)
+    if (row.delta === 'percent') return `${fmt(value)}%`
+    return fmt(value)
+  }
+
+  const getComparison = (row: StatRow) => {
+    const diff = row.bNum - row.aNum
+    if (!Number.isFinite(diff) || Math.abs(diff) < 0.005) {
+      return { badge: 'Even', winnerIndex: null as 0 | 1 | null }
+    }
+
+    const winnerIndex = row.lowerIsBetter
+      ? diff < 0 ? 1 : 0
+      : diff > 0 ? 1 : 0
+    const direction = row.lowerIsBetter ? '↓' : '↑'
+    const sign = row.lowerIsBetter ? '' : '+'
+    return {
+      badge: `${direction} ${sign}${fmtDelta(row, Math.abs(diff))}`,
+      winnerIndex: winnerIndex as 0 | 1,
+    }
+  }
+
+  const winningCellStyle = (winnerIndex: 0 | 1 | null, index: 0 | 1) => {
+    if (winnerIndex !== index) return undefined
+    const color = RUN_COLORS[index]
+    return {
+      borderColor: color,
+      boxShadow: `0 0 0 1px ${color}33, 0 0 18px ${color}24`,
+    }
   }
 
   const rows: StatRow[] = [
@@ -155,6 +249,9 @@ function CompareStats({ runs, initialCapital }: CompareStatsProps) {
       label:  'Total return',
       aVal:   fmtPct(a.stats.totalReturn),
       bVal:   fmtPct(b.stats.totalReturn),
+      aNum:   a.stats.totalReturn,
+      bNum:   b.stats.totalReturn,
+      delta:  'percent',
       aColor: a.stats.totalReturn >= 0 ? 'text-[#4ADE80]' : 'text-[#F87171]',
       bColor: b.stats.totalReturn >= 0 ? 'text-[#4ADE80]' : 'text-[#F87171]',
     },
@@ -162,50 +259,93 @@ function CompareStats({ runs, initialCapital }: CompareStatsProps) {
       label:  'Abs. P&L',
       aVal:   `${a.stats.totalReturnAbs >= 0 ? '+' : ''}$${fmt(a.stats.totalReturnAbs)}`,
       bVal:   `${b.stats.totalReturnAbs >= 0 ? '+' : ''}$${fmt(b.stats.totalReturnAbs)}`,
+      aNum:   a.stats.totalReturnAbs,
+      bNum:   b.stats.totalReturnAbs,
+      delta:  'currency',
       aColor: a.stats.totalReturnAbs >= 0 ? 'text-[#4ADE80]' : 'text-[#F87171]',
       bColor: b.stats.totalReturnAbs >= 0 ? 'text-[#4ADE80]' : 'text-[#F87171]',
     },
-    { label: 'Win rate',     aVal: `${fmt(a.stats.winRate)}%`,      bVal: `${fmt(b.stats.winRate)}%` },
-    { label: 'Total trades', aVal: String(a.stats.totalTrades),     bVal: String(b.stats.totalTrades) },
-    { label: 'Max drawdown', aVal: `${fmt(a.stats.maxDrawdown)}%`,  bVal: `${fmt(b.stats.maxDrawdown)}%`, aColor: 'text-[#F87171]', bColor: 'text-[#F87171]' },
-    { label: 'Sharpe ratio',  aVal: fmt(a.stats.sharpeRatio),  bVal: fmt(b.stats.sharpeRatio),  hint: METRIC_HINTS.sharpe  },
-    { label: 'Sortino ratio', aVal: fmt(a.stats.sortinoRatio), bVal: fmt(b.stats.sortinoRatio), hint: METRIC_HINTS.sortino },
-    { label: 'Best trade',   aVal: fmtPct(a.stats.bestTrade),  bVal: fmtPct(b.stats.bestTrade),  aColor: 'text-[#4ADE80]', bColor: 'text-[#4ADE80]' },
-    { label: 'Worst trade',  aVal: fmtPct(a.stats.worstTrade), bVal: fmtPct(b.stats.worstTrade), aColor: 'text-[#F87171]', bColor: 'text-[#F87171]' },
+    { label: 'Win rate',     aVal: `${fmt(a.stats.winRate)}%`,      bVal: `${fmt(b.stats.winRate)}%`,     aNum: a.stats.winRate,      bNum: b.stats.winRate,      delta: 'percent' },
+    { label: 'Total trades', aVal: String(a.stats.totalTrades),     bVal: String(b.stats.totalTrades),    aNum: a.stats.totalTrades,  bNum: b.stats.totalTrades,  delta: 'count' },
+    { label: 'Max drawdown', aVal: `${fmt(a.stats.maxDrawdown)}%`,  bVal: `${fmt(b.stats.maxDrawdown)}%`, aNum: a.stats.maxDrawdown,  bNum: b.stats.maxDrawdown,  delta: 'percent', aColor: 'text-[#F87171]', bColor: 'text-[#F87171]', lowerIsBetter: true },
+    { label: 'Sharpe ratio',  aVal: fmt(a.stats.sharpeRatio),  bVal: fmt(b.stats.sharpeRatio),  aNum: a.stats.sharpeRatio,  bNum: b.stats.sharpeRatio,  delta: 'ratio', hint: METRIC_HINTS.sharpe  },
+    { label: 'Sortino ratio', aVal: fmt(a.stats.sortinoRatio), bVal: fmt(b.stats.sortinoRatio), aNum: a.stats.sortinoRatio, bNum: b.stats.sortinoRatio, delta: 'ratio', hint: METRIC_HINTS.sortino },
+    { label: 'Best trade',   aVal: fmtPct(a.stats.bestTrade),  bVal: fmtPct(b.stats.bestTrade),  aNum: a.stats.bestTrade,   bNum: b.stats.bestTrade,   delta: 'percent', aColor: tradeTone(a.stats.bestTrade), bColor: tradeTone(b.stats.bestTrade) },
+    { label: 'Worst trade',  aVal: fmtPct(a.stats.worstTrade), bVal: fmtPct(b.stats.worstTrade), aNum: a.stats.worstTrade,  bNum: b.stats.worstTrade,  delta: 'percent', aColor: tradeTone(a.stats.worstTrade), bColor: tradeTone(b.stats.worstTrade) },
     {
       label: 'Final equity',
       aVal:  `$${fmt(initialCapital + a.stats.totalReturnAbs)}`,
       bVal:  `$${fmt(initialCapital + b.stats.totalReturnAbs)}`,
+      aNum:  initialCapital + a.stats.totalReturnAbs,
+      bNum:  initialCapital + b.stats.totalReturnAbs,
+      delta: 'currency',
     },
   ]
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7B8499]">
-            <th className="text-left pb-3 pr-4 font-semibold">Metric</th>
-            <th className="text-right pb-3 pr-4 font-semibold">
-              <span style={{ color: RUN_COLORS[0] }}>{a.label}</span>
-            </th>
-            <th className="text-right pb-3 font-semibold">
-              <span style={{ color: RUN_COLORS[1] }}>{b.label}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(row => (
-            <tr key={row.label} className="border-t border-[#242B3B]">
-              <td className="py-3 pr-4">
-                <span className="text-[#8F99AF]">{row.label}</span>
-                {row.hint && <MetricHint text={row.hint} />}
-              </td>
-              <td className={`py-3 text-right pr-4 text-[15px] font-semibold ${row.aColor ?? 'text-[#F4F7FC]'}`}>{row.aVal}</td>
-              <td className={`py-3 text-right text-[15px] font-semibold ${row.bColor ?? 'text-[#F4F7FC]'}`}>{row.bVal}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="space-y-3">
+      <div className="grid gap-3 md:grid-cols-2">
+        {[a, b].map((run, index) => (
+          <div key={run.label} className="rounded-[8px] border border-[#242B3B] bg-[#10141D] p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: RUN_COLORS[index] }} />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: RUN_COLORS[index] }}>
+                Strategy {index + 1}
+              </span>
+            </div>
+            <div className="text-[16px] font-semibold text-[#F4F7FC]">{run.label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="overflow-x-auto">
+        <div className="min-w-[760px] divide-y divide-[#242B3B] rounded-[8px] border border-[#242B3B] bg-[#0B1018]">
+          {rows.map(row => {
+            const comparison = getComparison(row)
+            return (
+              <div key={row.label} className="grid grid-cols-[1.05fr_1fr_1fr_0.95fr] items-center gap-4 px-4 py-3">
+                <div className="flex min-w-0 items-center">
+                  <span className="truncate text-[14px] font-medium text-[#A9B0C2]">{row.label}</span>
+                  {row.hint && <MetricHint text={row.hint} align="left" />}
+                </div>
+                <div
+                  className="rounded-[8px] border border-[#242B3B] bg-[#111722] px-3 py-2 text-right transition-[border-color,box-shadow] duration-150"
+                  style={winningCellStyle(comparison.winnerIndex, 0)}
+                >
+                  <div className="mb-0.5 truncate text-[10px] font-semibold uppercase tracking-[0.08em]" style={{ color: RUN_COLORS[0] }}>
+                    {a.label}
+                  </div>
+                  <div className={`text-[16px] font-semibold ${row.aColor ?? 'text-[#F4F7FC]'}`}>{row.aVal}</div>
+                </div>
+                <div
+                  className="rounded-[8px] border border-[#242B3B] bg-[#111722] px-3 py-2 text-right transition-[border-color,box-shadow] duration-150"
+                  style={winningCellStyle(comparison.winnerIndex, 1)}
+                >
+                  <div className="mb-0.5 truncate text-[10px] font-semibold uppercase tracking-[0.08em]" style={{ color: RUN_COLORS[1] }}>
+                    {b.label}
+                  </div>
+                  <div className={`text-[16px] font-semibold ${row.bColor ?? 'text-[#F4F7FC]'}`}>{row.bVal}</div>
+                </div>
+                <div className="flex justify-end">
+                  <span
+                    className="inline-flex min-w-[5.25rem] items-center justify-center rounded-full border px-2.5 py-1 text-[12px] font-semibold leading-none"
+                    style={
+                      comparison.winnerIndex === null
+                        ? { borderColor: '#242B3B', backgroundColor: '#111722', color: '#7B8499' }
+                        : {
+                            borderColor: `${RUN_COLORS[comparison.winnerIndex]}66`,
+                            backgroundColor: `${RUN_COLORS[comparison.winnerIndex]}14`,
+                            color: RUN_COLORS[comparison.winnerIndex],
+                          }
+                    }
+                  >
+                    {comparison.badge}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }
@@ -386,9 +526,11 @@ export default function BacktestPage() {
   const secondaryRun = result?.runs[1] ?? null
   const hasCompare = Boolean(result && result.runs.length > 1 && secondaryRun)
 
-  const overlayLabel = primaryRun?.overlays.strategy === 'score'
-    ? 'Score Overlay · Strong 1.5 · Entry 1.0 · Exit −0.5'
-    : 'RSI 14 · Oversold 40 · Overbought 60'
+  const overlayLabel = hasCompare
+    ? 'Trade markers'
+    : primaryRun?.overlays.strategy === 'score'
+      ? 'Score Overlay · Bounds +/-2'
+      : 'RSI 14'
 
   return (
     <div className="min-h-screen bg-[#070A0F] text-[#A9B0C2]">
@@ -584,6 +726,8 @@ export default function BacktestPage() {
               trades={primaryRun.trades}
               overlays={primaryRun.overlays}
               compareTrades={hasCompare && secondaryRun ? secondaryRun.trades : undefined}
+              primaryLabel={primaryRun.label}
+              compareLabel={hasCompare && secondaryRun ? secondaryRun.label : undefined}
             />
           </div>
 
@@ -612,99 +756,61 @@ export default function BacktestPage() {
           </div>
 
           {/* Trade log */}
-          {(hasCompare ? result.runs : [primaryRun]).map((run, ri) => (
-            <div key={`${run.label}-${ri}`} className={`${CHART_SHELL} mb-4 p-4`}>
-              <div className="mb-4 flex flex-col gap-1 border-b border-[#242B3B] pb-4 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8EA2FF]">Trade log</div>
-                  <h2 className="mt-1 text-[18px] font-semibold tracking-tight text-[#F4F7FC]">{run.label}</h2>
+          {(hasCompare ? result.runs : [primaryRun]).map((run, ri) => {
+            const completedTrades = getCompletedTradeRows(run.trades)
+
+            return (
+              <div key={`${run.label}-${ri}`} className={`${CHART_SHELL} mb-4 p-4`}>
+                <div className="mb-4 flex flex-col gap-1 border-b border-[#242B3B] pb-4 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8EA2FF]">Trade log</div>
+                    <h2 className="mt-1 text-[18px] font-semibold tracking-tight text-[#F4F7FC]">{run.label}</h2>
+                  </div>
+                  <div className="text-[12px] font-medium text-[#7B8499]">{completedTrades.length} completed trades</div>
                 </div>
-                <div className="text-[12px] font-medium text-[#7B8499]">{run.trades.length} entries</div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7B8499]">
-                      {run.overlays.strategy === 'score' ? (
-                        <>
-                          <th className="text-left pb-3 font-semibold">Entry date</th>
-                          <th className="text-left pb-3 font-semibold">Exit date</th>
-                          <th className="text-right pb-3 font-semibold">Entry price</th>
-                          <th className="text-right pb-3 font-semibold">Exit price</th>
-                          <th className="text-right pb-3 font-semibold">Entry score</th>
-                          <th className="text-right pb-3 font-semibold">Size %</th>
-                          <th className="text-right pb-3 font-semibold">P&L %</th>
-                          <th className="text-right pb-3 font-semibold">Exit reason</th>
-                        </>
-                      ) : (
-                        <>
-                          <th className="text-left pb-3 font-semibold">Date</th>
-                          <th className="text-left pb-3 font-semibold">Type</th>
-                          <th className="text-right pb-3 font-semibold">Price</th>
-                          <th className="text-right pb-3 font-semibold">Qty</th>
-                          <th className="text-right pb-3 font-semibold">Value</th>
-                          <th className="text-right pb-3 font-semibold">P&L</th>
-                          <th className="text-right pb-3 font-semibold">P&L %</th>
-                        </>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {run.overlays.strategy === 'score'
-                      ? run.trades
-                        .map((trade, index) => ({ trade, index }))
-                        .filter(({ trade }) => trade.type === 'sell')
-                        .map(({ trade, index }) => {
-                          const buy = run.trades.slice(0, index).reverse().find(t => t.type === 'buy')
-                          return (
-                            <tr key={`${trade.time}-${index}`} className="border-t border-[#242B3B]">
-                              <td className="py-3 text-[#8F99AF]">{buy ? new Date(buy.time).toLocaleDateString() : '—'}</td>
-                              <td className="py-3 text-[#8F99AF]">{new Date(trade.time).toLocaleDateString()}</td>
-                              <td className="py-3 text-right font-medium text-[#F4F7FC]">{buy ? `$${fmt(buy.price)}` : '—'}</td>
-                              <td className="py-3 text-right font-medium text-[#F4F7FC]">${fmt(trade.price)}</td>
-                              <td className="py-3 text-right font-medium text-[#F4F7FC]">{trade.entryScore != null ? trade.entryScore.toFixed(2) : '—'}</td>
-                              <td className="py-3 text-right font-medium text-[#F4F7FC]">{trade.sizePct != null ? `${trade.sizePct.toFixed(0)}%` : '—'}</td>
-                              <td className={`py-3 text-right font-semibold ${trade.pnlPct != null && trade.pnlPct >= 0 ? 'text-[#4ADE80]' : 'text-[#FB7185]'}`}>
-                                {trade.pnlPct != null ? fmtPct(trade.pnlPct) : '—'}
-                              </td>
-                              <td className="py-3 text-right text-[#8F99AF]">{trade.exitReason ?? '—'}</td>
-                            </tr>
-                          )
-                        })
-                      : run.trades.map((t, i) => (
-                        <tr key={i} className="border-t border-[#242B3B]">
-                          <td className="py-3 text-[#8F99AF]">
-                            {new Date(t.time).toLocaleDateString()}
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[840px] text-sm">
+                    <thead>
+                      <tr className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7B8499]">
+                        <th className="text-left pb-3 font-semibold">Entry date</th>
+                        <th className="text-left pb-3 font-semibold">Exit date</th>
+                        <th className="text-right pb-3 font-semibold">Entry price</th>
+                        <th className="text-right pb-3 font-semibold">Exit price</th>
+                        <th className="text-right pb-3 font-semibold">Ending value</th>
+                        <th className="text-right pb-3 font-semibold">P&L %</th>
+                        <th className="text-right pb-3 font-semibold">Entry score</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {completedTrades.length === 0 ? (
+                        <tr className="border-t border-[#242B3B]">
+                          <td colSpan={7} className="py-6 text-center text-[13px] font-medium text-[#7B8499]">
+                            No completed trades for this run.
                           </td>
-                          <td className="py-3">
-                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                              t.type === 'buy'
-                                ? 'bg-[#4ADE80]/15 text-[#4ADE80]'
-                                : 'bg-[#FB7185]/15 text-[#FB7185]'
-                            }`}>
-                              {t.type.toUpperCase()}
-                            </span>
-                          </td>
-                          <td className="py-3 text-right font-medium text-[#F4F7FC]">${fmt(t.price)}</td>
-                          <td className="py-3 text-right text-[#8F99AF]">{t.quantity.toFixed(6)}</td>
-                          <td className="py-3 text-right font-medium text-[#F4F7FC]">${fmt(t.value)}</td>
+                        </tr>
+                      ) : completedTrades.map(trade => (
+                        <tr key={trade.key} className="border-t border-[#242B3B]">
+                          <td className="py-3 text-[#8F99AF]">{trade.entryTime ? new Date(trade.entryTime).toLocaleDateString() : '-'}</td>
+                          <td className="py-3 text-[#8F99AF]">{new Date(trade.exitTime).toLocaleDateString()}</td>
+                          <td className="py-3 text-right font-medium text-[#F4F7FC]">{trade.entryPrice != null ? `$${fmt(trade.entryPrice)}` : '-'}</td>
+                          <td className="py-3 text-right font-medium text-[#F4F7FC]">${fmt(trade.exitPrice)}</td>
+                          <td className="py-3 text-right font-medium text-[#F4F7FC]">${fmt(trade.endingValue)}</td>
                           <td className={`py-3 text-right font-semibold ${
-                            t.pnl == null ? 'text-[#8F99AF]' : t.pnl >= 0 ? 'text-[#4ADE80]' : 'text-[#FB7185]'
+                            trade.pnlPct == null ? 'text-[#8F99AF]' : trade.pnlPct >= 0 ? 'text-[#4ADE80]' : 'text-[#FB7185]'
                           }`}>
-                            {t.pnl != null ? `${t.pnl >= 0 ? '+' : ''}$${fmt(t.pnl)}` : '—'}
+                            {trade.pnlPct != null ? fmtPct(trade.pnlPct) : '-'}
                           </td>
-                          <td className={`py-3 text-right font-semibold ${
-                            t.pnlPct == null ? 'text-[#8F99AF]' : t.pnlPct >= 0 ? 'text-[#4ADE80]' : 'text-[#FB7185]'
-                          }`}>
-                            {t.pnlPct != null ? fmtPct(t.pnlPct) : '—'}
+                          <td className="py-3 text-right font-medium text-[#F4F7FC]">
+                            {trade.entryScore != null ? trade.entryScore.toFixed(2) : '-'}
                           </td>
                         </tr>
                       ))}
-                  </tbody>
-                </table>
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </>
       )}
       </div>

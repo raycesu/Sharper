@@ -108,6 +108,30 @@ function buildRunResult(
     })
 
     const rsiSeries = rsi(candles, 14)
+    const candlesIndexByTime = new Map(candles.map((candle, index) => [candle.time, index]))
+    let activeEntryScore: number | undefined
+    result = {
+      ...result,
+      trades: result.trades.map(trade => {
+        const index = candlesIndexByTime.get(trade.time)
+        const rsiValue = index == null ? null : rsiSeries[index]
+
+        if (trade.type === 'buy') {
+          activeEntryScore = rsiValue ?? undefined
+          return {
+            ...trade,
+            entryScore: activeEntryScore,
+          }
+        }
+
+        const decorated = {
+          ...trade,
+          entryScore: activeEntryScore,
+        }
+        activeEntryScore = undefined
+        return decorated
+      }),
+    }
     overlays = {
       strategy: 'rsi',
       rsi: candles
